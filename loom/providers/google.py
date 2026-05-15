@@ -1,88 +1,97 @@
+"""Google Gemini Batch API provider.
+
+Docs: https://ai.google.dev/gemini-api/docs/batch-api
+
+Uses the google-genai SDK with inline requests. For very large inputs the
+SDK supports a file/GCS upload path which is out of scope for v1.
+"""
+
 from __future__ import annotations
 
-from google import genai
-from google.genai import types
+import json
+from typing import Any
 
-from ..core.models import PromptItem
-from .base import BatchProvider, BatchResult, BatchStatus, Status
+from ..core.models import BatchStatus, PromptItem
+from .base import BatchProvider
 
 
-_STATUS_MAP: dict[str, Status] = {
-    "JOB_STATE_UNSPECIFIED": "pending",
-    "JOB_STATE_QUEUED": "pending",
-    "JOB_STATE_PENDING": "pending",
+_STATE_MAP = {
+    "JOB_STATE_QUEUED": "validating",
+    "JOB_STATE_PENDING": "validating",
     "JOB_STATE_RUNNING": "in_progress",
-    "JOB_STATE_UPDATING": "in_progress",
-    "JOB_STATE_CANCELLING": "in_progress",
-    "JOB_STATE_PAUSED": "pending",
     "JOB_STATE_SUCCEEDED": "completed",
-    "JOB_STATE_PARTIALLY_SUCCEEDED": "completed",
     "JOB_STATE_FAILED": "failed",
     "JOB_STATE_CANCELLED": "cancelled",
     "JOB_STATE_EXPIRED": "expired",
 }
 
 
-class GoogleProvider(BatchProvider):
+class GoogleBatchProvider(BatchProvider):
     name = "google"
-    env_var = "GOOGLE_API_KEY"
 
-    _cached_client: genai.Client | None = None
+    def __init__(self, api_key: str) -> None:
+        super().__init__(api_key)
+        from google import genai
+        self.client = genai.Client(api_key=api_key)
 
-    def _client(self) -> genai.Client:
-        # Cache the Client: genai.Client.__del__ closes its httpx session, so a
-        # short-lived temporary will be garbage-collected mid-request.
-        if self._cached_client is None:
-            self._cached_client = genai.Client(api_key=self.api_key)
-        return self._cached_client
-
-    def submit(self, prompts: list[PromptItem], model: str) -> str:
-        requests = [
-            types.InlinedRequest(
-                contents=[{"role": "user", "parts": [{"text": p.prompt}]}],
-                metadata={"custom_id": p.id},
-            )
-            for p in prompts
+    def submit(self, items: list[PromptItem], model: str) -> str:
+        inlined = [
+            {
+                "key": it.custom_id,
+                "request": {
+                    "contents": [{"parts": [{"text": it.prompt}], "role": "user"}],
+                },
+            }
+            for it in items
         ]
-        job = self._client().batches.create(
+        job = self.client.batches.create(
             model=model,
-            src=requests,
+            src=inlined,
             config={"display_name": "loom-batch"},
         )
-        if not job.name:
-            raise RuntimeError("Gemini batch creation returned no name")
-        # job.name is "batches/abc..." — strip the prefix so storage keys match other providers.
-        return job.name.split("/", 1)[-1]
+        return job.name
 
-    def _full_name(self, batch_id: str) -> str:
-        return batch_id if batch_id.startswith("batches/") else f"batches/{batch_id}"
+    def _retrieve(self, batch_id: str) -> Any:
+        return self.client.batches.get(name=batch_id)
 
-    def status(self, batch_id: str) -> BatchStatus:
-        job = self._client().batches.get(name=self._full_name(batch_id))
-        state_str = job.state.value if job.state else ""
-        total = len(job.dest.inlined_responses) if (job.dest and job.dest.inlined_responses) else None
-        return BatchStatus(
-            state=_STATUS_MAP.get(state_str, "pending"),
-            raw=state_str,
-            total=total,
-            completed=total,
-        )
+    def check_status(self, batch_id: str) -> BatchStatus:
+        job = self._retrieve(batch_id)
+        state = getattr(job.state, "name", str(job.state))
+        return _STATE_MAP.get(state, "unknown")  # type: ignore[return-value]
 
-    def fetch_results(self, batch_id: str) -> BatchResult:
-        job = self._client().batches.get(name=self._full_name(batch_id))
-        if not job.dest or not job.dest.inlined_responses:
-            raise RuntimeError(f"Batch {batch_id} has no inlined_responses (state={job.state})")
-
-        responses: dict[str, str | None] = {}
-        for item in job.dest.inlined_responses:
-            cid = (item.metadata or {}).get("custom_id")
-            if not cid:
-                continue
-            if item.error or not item.response:
-                responses[cid] = None
-                continue
-            try:
-                responses[cid] = item.response.text or ""
-            except Exception:
-                responses[cid] = None
-        return BatchResult(responses=responses)
+    def download_results(self, batch_id: str) -> dict[str, str]:
+        job = self._retrieve(batch_id)
+        out: dict[str, str] = {}
+        dest = getattr(job, "dest", None)
+        inlined = getattr(dest, "inlined_responses", None) if dest else None
+        if inlined:
+            for entry in inlined:
+                cid = getattr(entry, "key", "") or ""
+                resp = getattr(entry, "response", None)
+                text = ""
+                if resp is not None:
+                    candidates = getattr(resp, "candidates", None) or []
+                    if candidates:
+                        content = getattr(candidates[0], "content", None)
+                        parts = getattr(content, "parts", None) or []
+                        text = "".join(getattr(p, "text", "") or "" for p in parts)
+                out[cid] = text
+            return out
+        # Fallback: file-based output
+        file_name = getattr(dest, "file_name", None) if dest else None
+        if file_name:
+            data = self.client.files.download(file=file_name)
+            text = data.decode("utf-8") if isinstance(data, (bytes, bytearray)) else str(data)
+            for line in text.splitlines():
+                if not line.strip():
+                    continue
+                obj = json.loads(line)
+                cid = obj.get("key", "")
+                resp = obj.get("response", {}) or {}
+                candidates = resp.get("candidates", []) or []
+                if candidates:
+                    parts = (candidates[0].get("content", {}) or {}).get("parts", []) or []
+                    out[cid] = "".join(p.get("text", "") for p in parts)
+                else:
+                    out[cid] = ""
+        return out

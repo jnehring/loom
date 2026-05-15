@@ -1,96 +1,63 @@
+"""Anthropic Message Batches provider.
+
+Docs: https://platform.claude.com/docs/en/build-with-claude/batch-processing
+"""
+
 from __future__ import annotations
 
-import httpx
-
-from ..core.models import PromptItem
-from ..utils.converters import parse_jsonl
-from .base import BatchProvider, BatchResult, BatchStatus, Status
+from ..core.models import BatchStatus, PromptItem
+from .base import BatchProvider
 
 
-BASE_URL = "https://api.anthropic.com/v1"
-API_VERSION = "2023-06-01"
-DEFAULT_MAX_TOKENS = 4096
-
-
-_STATUS_MAP: dict[str, Status] = {
+_STATUS_MAP = {
     "in_progress": "in_progress",
     "canceling": "in_progress",
-    "ended": "completed",  # canonical "ended" — individual requests may still have failed
+    "ended": "completed",  # individual results may still be failed
 }
 
 
-class AnthropicProvider(BatchProvider):
+class AnthropicBatchProvider(BatchProvider):
     name = "anthropic"
-    env_var = "ANTHROPIC_API_KEY"
 
-    def _headers(self) -> dict[str, str]:
-        return {
-            "x-api-key": self.api_key or "",
-            "anthropic-version": API_VERSION,
-            "content-type": "application/json",
-        }
+    def __init__(self, api_key: str) -> None:
+        super().__init__(api_key)
+        from anthropic import Anthropic
+        self.client = Anthropic(api_key=api_key)
 
-    def _client(self) -> httpx.Client:
-        return httpx.Client(base_url=BASE_URL, headers=self._headers(), timeout=120.0)
+    def submit(self, items: list[PromptItem], model: str) -> str:
+        from anthropic.types.messages.batch_create_params import Request
+        from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
 
-    def submit(self, prompts: list[PromptItem], model: str) -> str:
         requests = [
-            {
-                "custom_id": p.id,
-                "params": {
-                    "model": model,
-                    "max_tokens": DEFAULT_MAX_TOKENS,
-                    "messages": [{"role": "user", "content": p.prompt}],
-                },
-            }
-            for p in prompts
+            Request(
+                custom_id=it.custom_id,
+                params=MessageCreateParamsNonStreaming(
+                    model=model,
+                    max_tokens=4096,
+                    messages=[{"role": "user", "content": it.prompt}],
+                ),
+            )
+            for it in items
         ]
-        with self._client() as client:
-            r = client.post("/messages/batches", json={"requests": requests})
-            r.raise_for_status()
-            return r.json()["id"]
+        batch = self.client.messages.batches.create(requests=requests)
+        return batch.id
 
-    def status(self, batch_id: str) -> BatchStatus:
-        with self._client() as client:
-            r = client.get(f"/messages/batches/{batch_id}")
-            r.raise_for_status()
-            body = r.json()
-        counts = body.get("request_counts") or {}
-        total = sum(counts.values()) if counts else None
-        completed = (counts.get("succeeded", 0) + counts.get("errored", 0)
-                     + counts.get("canceled", 0) + counts.get("expired", 0)) if counts else None
-        return BatchStatus(
-            state=_STATUS_MAP.get(body.get("processing_status", ""), "pending"),
-            raw=body.get("processing_status", ""),
-            total=total,
-            completed=completed,
-        )
+    def check_status(self, batch_id: str) -> BatchStatus:
+        batch = self.client.messages.batches.retrieve(batch_id)
+        return _STATUS_MAP.get(batch.processing_status, "unknown")  # type: ignore[return-value]
 
-    def fetch_results(self, batch_id: str) -> BatchResult:
-        with self._client() as client:
-            r = client.get(f"/messages/batches/{batch_id}")
-            r.raise_for_status()
-            results_url = r.json().get("results_url")
-            if not results_url:
-                raise RuntimeError(f"Batch {batch_id} has no results_url yet")
-            # results_url is a fully-qualified URL; use a separate request with auth headers.
-            r = client.get(results_url)
-            r.raise_for_status()
-            lines = parse_jsonl(r.text)
-
-        responses: dict[str, str | None] = {}
-        for line in lines:
-            cid = line.get("custom_id")
-            if not cid:
-                continue
-            result = line.get("result") or {}
-            if result.get("type") != "succeeded":
-                responses[cid] = None
-                continue
-            try:
-                blocks = result["message"]["content"]
-                text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-                responses[cid] = text
-            except (KeyError, TypeError):
-                responses[cid] = None
-        return BatchResult(responses=responses)
+    def download_results(self, batch_id: str) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for result in self.client.messages.batches.results(batch_id):
+            cid = result.custom_id
+            if result.result.type == "succeeded":
+                message = result.result.message
+                # Concatenate text blocks
+                parts = []
+                for block in message.content:
+                    if getattr(block, "type", None) == "text":
+                        parts.append(block.text)
+                out[cid] = "".join(parts)
+            else:
+                out[cid] = ""
+        return out

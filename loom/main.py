@@ -1,136 +1,174 @@
+"""Loom CLI entry point.
+
+Help is wired so that `loom`, `loom -h`, `loom --help`, and `loom -?` all
+print usage. Same on every subcommand.
+"""
+
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import typer
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
 from .core import orchestrator
 from .utils import storage
 
+HELP_OPTIONS = ["-h", "--help", "-?"]
 
-app = typer.Typer(help="Loom — weave LLM batch jobs across providers.", no_args_is_help=True)
+app = typer.Typer(
+    name="loom",
+    help="Loom — weave batch LLM jobs across OpenAI, Anthropic, and Google.",
+    context_settings={"help_option_names": HELP_OPTIONS},
+    no_args_is_help=True,
+    add_completion=False,
+)
+
 console = Console()
 
 
-def _apply_api_key(provider: str, api_key: Optional[str]) -> Optional[str]:
-    """If the user passed --api-key, expose it via the matching env var for the provider."""
-    if not api_key:
-        return None
-    import os
-    env_map = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-    }
-    var = env_map.get(provider.lower())
-    if var:
-        os.environ[var] = api_key
-    return api_key
+class Provider(str, Enum):
+    openai = "openai"
+    anthropic = "anthropic"
+    google = "google"
 
 
-@app.callback()
-def _root() -> None:
-    # Load .env from CWD if present. Existing env vars take precedence.
-    load_dotenv(override=False)
-
-
-@app.command()
-def run(
-    file: Path = typer.Option(..., "--file", "-f", exists=True, readable=True, help="Input .json or .csv"),
-    provider: str = typer.Option(..., "--provider", "-p", help="openai | anthropic | google"),
-    model: str = typer.Option(..., "--model", "-m", help="Model name (e.g. gpt-4o-mini, claude-3-5-sonnet-latest, gemini-2.5-flash)"),
-    col: Optional[str] = typer.Option(None, "--col", help="CSV column containing the prompt (required for .csv)"),
-    api_key: Optional[str] = typer.Option(None, "--api-key", help="Override API key from env"),
+@app.command(
+    "run",
+    help="Submit a new batch job from a JSON or CSV file.",
+    context_settings={"help_option_names": HELP_OPTIONS},
+)
+def run_cmd(
+    file: Path = typer.Option(..., "--file", "-f", exists=True, help="Input .json or .csv file."),
+    provider: Provider = typer.Option(..., "--provider", "-p", help="LLM provider."),
+    model: str = typer.Option(..., "--model", "-m", help="Model identifier (provider-specific)."),
+    col: Optional[str] = typer.Option(None, "--col", "-c", help="Prompt column name (required for CSV)."),
+    api_key: Optional[str] = typer.Option(None, "--api-key", help="Override env API key."),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file path."),
 ) -> None:
-    """Submit a batch."""
-    _apply_api_key(provider, api_key)
-    console.print(f"[dim]Spinning the threads...[/dim] submitting to [bold]{provider}[/bold] ({model})")
-    meta = orchestrator.submit_batch(
-        file_path=file,
-        provider_name=provider,
-        model=model,
-        column=col,
-        api_key=api_key,
-    )
-    console.print(f"[green]✓[/green] Batch submitted: [bold]{meta.batch_id}[/bold]")
-    console.print(f"  State saved to ~/.loom/batches/{meta.provider}_{meta.batch_id}.json")
-
-
-@app.command()
-def fetch(
-    id: Optional[str] = typer.Option(None, "--id", help="Specific batch id to fetch"),
-    all_: bool = typer.Option(False, "--all", help="Fetch every locally-tracked batch"),
-    api_key: Optional[str] = typer.Option(None, "--api-key", help="Override API key from env"),
-) -> None:
-    """Fetch results for one batch (--id) or every pending batch (--all)."""
-    if not id and not all_:
-        raise typer.BadParameter("Provide either --id or --all.")
-
-    targets: list[str]
-    if all_:
-        targets = [m.batch_id for m in storage.list_all()]
-        if not targets:
-            console.print("[dim]No batches tracked locally.[/dim]")
-            return
-    else:
-        assert id is not None
-        targets = [id]
-
-    for batch_id in targets:
-        meta = storage.load(batch_id)
-        _apply_api_key(meta.provider, api_key)
-        console.print(f"[dim]Checking the loom...[/dim] {meta.provider}/{batch_id}")
-        try:
-            updated, out = orchestrator.fetch_batch(batch_id, api_key=api_key)
-        except Exception as e:
-            console.print(f"  [red]✗[/red] {e}")
-            continue
-        if out is None:
-            # Re-read the live status for display.
-            from .providers import get_provider
-            st = get_provider(meta.provider, api_key=api_key).status(batch_id)
-            progress = ""
-            if st.total:
-                pct = int(100 * (st.completed or 0) / st.total)
-                progress = f" — {st.completed}/{st.total} ({pct}%)"
-            console.print(f"  [yellow]…[/yellow] still weaving: {st.raw}{progress}")
-        else:
-            console.print(f"  [green]✓[/green] Fabric complete. Results → [bold]{out}[/bold]")
-
-
-@app.command("list")
-def list_cmd() -> None:
-    """Show every batch this machine is tracking."""
-    rows = storage.list_all()
-    if not rows:
-        console.print("[dim]No batches tracked locally.[/dim]")
-        return
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Batch ID")
-    table.add_column("Provider")
-    table.add_column("Model")
-    table.add_column("Input")
-    table.add_column("Type")
-    table.add_column("Created (UTC)")
-    for m in rows:
-        table.add_row(
-            m.batch_id, m.provider, m.model,
-            Path(m.original_file_path).name, m.file_type,
-            m.created_at.strftime("%Y-%m-%d %H:%M"),
+    console.print("[bold cyan]Spinning the threads...[/bold cyan] submitting batch.")
+    try:
+        meta = orchestrator.run_batch(
+            file_path=file,
+            provider_name=provider.value,
+            model=model,
+            column=col,
+            api_key=api_key,
+            output_path=output,
         )
-    console.print(table)
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[green]Batch submitted.[/green] id=[bold]{meta.batch_id}[/bold] provider={meta.provider}")
+    console.print(f"Metadata saved to ~/.loom/batches/. Run [bold]loom fetch --id {meta.batch_id}[/bold] later.")
 
 
-@app.command()
-def forget(batch_id: str = typer.Argument(..., help="Batch id to drop from local state")) -> None:
-    """Remove a batch from local tracking (does not cancel it remotely)."""
-    storage.delete(batch_id)
-    console.print(f"[green]✓[/green] Forgot {batch_id}.")
+@app.command(
+    "fetch",
+    help="Check status / download results for a batch.",
+    context_settings={"help_option_names": HELP_OPTIONS},
+)
+def fetch_cmd(
+    batch_id: Optional[str] = typer.Option(None, "--id", "-i", help="Batch id to fetch."),
+    all_: bool = typer.Option(False, "--all", "-a", help="Fetch all pending batches."),
+    api_key: Optional[str] = typer.Option(None, "--api-key", help="Override env API key."),
+    keep: bool = typer.Option(
+        False,
+        "--keep",
+        "-k",
+        help="Keep the metadata file in ~/.loom/batches/ after a successful fetch (default: delete it).",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite existing output files without prompting.",
+    ),
+) -> None:
+    if not batch_id and not all_:
+        console.print("[red]Provide --id or --all.[/red]")
+        raise typer.Exit(code=2)
+
+    def _confirm_overwrite(meta, out_path) -> bool:
+        console.print(
+            f"[yellow]Warning:[/yellow] output file [bold]{out_path}[/bold] "
+            f"already exists (batch {meta.batch_id})."
+        )
+        return typer.confirm("Overwrite?", default=False)
+
+    targets = []
+    if all_:
+        results = orchestrator.fetch_all(
+            api_key=api_key, keep=keep, force=force, on_conflict=_confirm_overwrite
+        )
+        targets.extend(results)
+    else:
+        try:
+            targets.append(
+                orchestrator.fetch_batch(batch_id, api_key=api_key, keep=keep, force=force)
+            )
+        except orchestrator.OutputExistsError as exc:
+            if not _confirm_overwrite(exc.meta, exc.out_path):
+                console.print("[dim]Skipped. Re-run with --force to overwrite, or move the existing file.[/dim]")
+                raise typer.Exit(code=0)
+            try:
+                targets.append(
+                    orchestrator.fetch_batch(batch_id, api_key=api_key, keep=keep, force=True)
+                )
+            except Exception as e:  # noqa: BLE001
+                console.print(f"[red]Error:[/red] {e}")
+                raise typer.Exit(code=1)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    for meta, done in targets:
+        if done:
+            suffix = "" if keep else " [dim](metadata removed)[/dim]"
+            console.print(
+                f"[green]Fabric complete.[/green] id={meta.batch_id} -> [bold]{meta.output_path}[/bold]{suffix}"
+            )
+        else:
+            console.print(
+                f"[yellow]Checking the loom...[/yellow] id={meta.batch_id} status={meta.status}"
+            )
 
 
-if __name__ == "__main__":
+@app.command(
+    "list",
+    help="List all known batches with their last-known status.",
+    context_settings={"help_option_names": HELP_OPTIONS},
+)
+def list_cmd() -> None:
+    batches = storage.list_batches()
+    if not batches:
+        console.print("[dim]No batches stored under ~/.loom/batches/.[/dim]")
+        return
+    t = Table(title="Loom batches")
+    t.add_column("batch_id")
+    t.add_column("provider")
+    t.add_column("model")
+    t.add_column("status")
+    t.add_column("created_at")
+    t.add_column("file")
+    for m in batches:
+        t.add_row(
+            m.batch_id,
+            m.provider,
+            m.model,
+            m.status,
+            m.created_at.isoformat(timespec="seconds"),
+            Path(m.original_file_path).name,
+        )
+    console.print(t)
+
+
+def main() -> None:  # pragma: no cover
     app()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

@@ -1,48 +1,55 @@
+"""Persistence for batch metadata under ~/.loom/batches/."""
+
 from __future__ import annotations
 
 from pathlib import Path
+
 from ..core.models import BatchMetadata
 
-
-LOOM_DIR = Path.home() / ".loom"
-BATCHES_DIR = LOOM_DIR / "batches"
+STORAGE_DIR = Path.home() / ".loom" / "batches"
 
 
-def ensure_dirs() -> None:
-    BATCHES_DIR.mkdir(parents=True, exist_ok=True)
+def _ensure_dir() -> None:
+    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _path_for(provider: str, batch_id: str) -> Path:
-    return BATCHES_DIR / f"{provider}_{batch_id}.json"
+def _path_for(meta: BatchMetadata) -> Path:
+    safe_id = meta.batch_id.replace("/", "_")
+    return STORAGE_DIR / f"{meta.provider}_{safe_id}.json"
 
 
-def save(meta: BatchMetadata) -> Path:
-    ensure_dirs()
-    path = _path_for(meta.provider, meta.batch_id)
-    path.write_text(meta.model_dump_json(indent=2))
-    return path
+def save_batch(meta: BatchMetadata) -> Path:
+    _ensure_dir()
+    p = _path_for(meta)
+    p.write_text(meta.model_dump_json(indent=2))
+    return p
 
 
-def load(batch_id: str) -> BatchMetadata:
-    """Find a batch by id regardless of which provider prefixed the file."""
-    ensure_dirs()
-    matches = list(BATCHES_DIR.glob(f"*_{batch_id}.json"))
-    if not matches:
-        raise FileNotFoundError(f"No batch found locally with id={batch_id}")
-    return BatchMetadata.model_validate_json(matches[0].read_text())
+def load_batch(batch_id: str) -> BatchMetadata:
+    _ensure_dir()
+    safe_id = batch_id.replace("/", "_")
+    for f in STORAGE_DIR.glob(f"*_{safe_id}.json"):
+        return BatchMetadata.model_validate_json(f.read_text())
+    raise FileNotFoundError(f"No stored batch found for id={batch_id}")
 
 
-def list_all() -> list[BatchMetadata]:
-    ensure_dirs()
-    out = []
-    for p in sorted(BATCHES_DIR.glob("*.json")):
+def list_batches() -> list[BatchMetadata]:
+    _ensure_dir()
+    out: list[BatchMetadata] = []
+    for f in sorted(STORAGE_DIR.glob("*.json")):
         try:
-            out.append(BatchMetadata.model_validate_json(p.read_text()))
+            out.append(BatchMetadata.model_validate_json(f.read_text()))
         except Exception:
             continue
+    out.sort(key=lambda m: m.created_at, reverse=True)
     return out
 
 
-def delete(batch_id: str) -> None:
-    for p in BATCHES_DIR.glob(f"*_{batch_id}.json"):
-        p.unlink()
+def delete_batch(batch_id: str) -> bool:
+    _ensure_dir()
+    safe_id = batch_id.replace("/", "_")
+    removed = False
+    for f in STORAGE_DIR.glob(f"*_{safe_id}.json"):
+        f.unlink()
+        removed = True
+    return removed

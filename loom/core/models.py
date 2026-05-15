@@ -1,30 +1,38 @@
+"""Pydantic models for Loom."""
+
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional
+
 from pydantic import BaseModel, Field
 
 
 FileType = Literal["json", "csv"]
 ProviderName = Literal["openai", "anthropic", "google"]
+BatchStatus = Literal[
+    "validating", "in_progress", "completed", "failed", "expired", "cancelled", "unknown"
+]
 
 
 class PromptItem(BaseModel):
-    """A single prompt to send to an LLM."""
-    id: str
+    """A single unit of work to send to an LLM."""
+
+    custom_id: str
     prompt: str
 
 
 class BatchMetadata(BaseModel):
-    """Persisted state for a submitted batch. Stored at ~/.loom/batches/{provider}_{batch_id}.json"""
+    """Persisted record of a submitted batch."""
+
     batch_id: str
     provider: ProviderName
     model: str
     original_file_path: str
     file_type: FileType
     prompt_column: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    # Maps the custom_id we send to the provider back to the original row identity.
-    # For JSON: custom_id -> original "id" field.
-    # For CSV: custom_id -> original row index (as string).
+    # custom_id -> original row index (CSV) or original "id" field (JSON)
     id_map: dict[str, str] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    status: BatchStatus = "validating"
+    output_path: Optional[str] = None
