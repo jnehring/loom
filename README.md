@@ -11,8 +11,6 @@ Because batch jobs can take up to 24 hours, Loom acts as a tiny state machine:
 batch IDs and metadata are persisted under `~/.loom/batches/`, so you can close
 your terminal and come back tomorrow.
 
----
-
 ## Install
 
 ```bash
@@ -29,8 +27,6 @@ cd loom
 pip install -e ".[dev]"
 pytest
 ```
-
----
 
 ## Quick start
 
@@ -97,8 +93,6 @@ loom fetch --all
 
 The output `data_results.csv` preserves every original column and appends a new `llm_response` column. Row order is preserved.
 
----
-
 ## Commands
 
 | Command | Purpose |
@@ -122,8 +116,6 @@ The output `data_results.csv` preserves every original column and appends a new 
 | `--api-key` | Override the env/.env key. |
 | `--output, -o` | Custom output path (default: `<input>_results.<ext>`). |
 
----
-
 ## How it works
 
 1. **Submit.** Loom converts your file into the provider's required JSONL/inline format, attaches a `custom_id` to every row, uploads, and creates the batch.
@@ -131,8 +123,6 @@ The output `data_results.csv` preserves every original column and appends a new 
 3. **Fetch.** `loom fetch` polls the provider. If the batch is done, it downloads results, looks up each `custom_id` in the id-map, and **merges responses back in original order**.
 
 Providers don't guarantee response order — Loom always uses `custom_id` to put rows back where they belong.
-
----
 
 ## Provider matrix
 
@@ -145,16 +135,12 @@ Providers don't guarantee response order — Loom always uses `custom_id` to put
 
 For very large Google batches the SDK supports a file/GCS upload path — Loom v0.1 only uses inline requests. If your dataset is huge, split it or fall back to OpenAI/Anthropic.
 
----
-
 ## Limitations (v0.1)
 
 - Text in, text out. No images / tool use / structured output yet.
 - Google: inline requests only (no GCS upload).
 - One model per batch.
 - No automatic retry on failed individual requests; failed items get an empty `llm_response`.
-
----
 
 ## Releasing
 
