@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 from loom.main import app
 
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 
 @pytest.mark.parametrize("flag", ["-h", "--help", "-?"])
