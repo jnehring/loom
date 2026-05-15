@@ -68,7 +68,7 @@ loom run --file prompts.json --provider openai --model gpt-4o-mini
 loom run --file data.csv --col prompt --provider anthropic --model claude-3-5-sonnet-latest
 
 # Gemini
-loom run --file prompts.json --provider google --model gemini-2.5-flash
+loom run --file prompts.json --provider google --model gemini-3.1-flash-lite
 ```
 
 `loom` prints the assigned `batch_id` and saves state to `~/.loom/batches/{provider}_{batch_id}.json`. The batch then runs asynchronously on the provider's side — you can close your terminal.
