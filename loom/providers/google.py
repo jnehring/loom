@@ -37,10 +37,8 @@ class GoogleBatchProvider(BatchProvider):
     def submit(self, items: list[PromptItem], model: str) -> str:
         inlined = [
             {
-                "key": it.custom_id,
-                "request": {
-                    "contents": [{"parts": [{"text": it.prompt}], "role": "user"}],
-                },
+                "contents": [{"parts": [{"text": it.prompt}], "role": "user"}],
+                "metadata": {"custom_id": it.custom_id},
             }
             for it in items
         ]
@@ -66,7 +64,8 @@ class GoogleBatchProvider(BatchProvider):
         inlined = getattr(dest, "inlined_responses", None) if dest else None
         if inlined:
             for entry in inlined:
-                cid = getattr(entry, "key", "") or ""
+                meta = getattr(entry, "metadata", None) or {}
+                cid = meta.get("custom_id", "") if isinstance(meta, dict) else ""
                 resp = getattr(entry, "response", None)
                 text = ""
                 if resp is not None:
@@ -86,7 +85,7 @@ class GoogleBatchProvider(BatchProvider):
                 if not line.strip():
                     continue
                 obj = json.loads(line)
-                cid = obj.get("key", "")
+                cid = (obj.get("metadata") or {}).get("custom_id", "")
                 resp = obj.get("response", {}) or {}
                 candidates = resp.get("candidates", []) or []
                 if candidates:

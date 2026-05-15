@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..core.models import BatchMetadata
@@ -41,7 +42,10 @@ def list_batches() -> list[BatchMetadata]:
             out.append(BatchMetadata.model_validate_json(f.read_text()))
         except Exception:
             continue
-    out.sort(key=lambda m: m.created_at, reverse=True)
+    def _sort_key(m: BatchMetadata) -> datetime:
+        dt = m.created_at
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    out.sort(key=_sort_key, reverse=True)
     return out
 
 
