@@ -125,6 +125,16 @@ def fetch_cmd(
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)
 
+    status_help = {
+        "validating": "Provider has accepted the batch and is queueing/preparing it; no work has started yet.",
+        "in_progress": "Provider is actively running the prompts; check back later.",
+        "completed": "All prompts finished and results were downloaded.",
+        "failed": "Provider reported the batch as failed; results are not available.",
+        "expired": "Batch exceeded the provider's time limit before completing.",
+        "cancelled": "Batch was cancelled before completing.",
+        "unknown": "Last fetch attempt raised an error (e.g. invalid id, auth, or network); re-run to retry.",
+    }
+
     for meta, done in targets:
         if done:
             suffix = "" if keep else " [dim](metadata removed)[/dim]"
@@ -135,6 +145,9 @@ def fetch_cmd(
             console.print(
                 f"[yellow]Checking the loom...[/yellow] id={meta.batch_id} status={meta.status}"
             )
+            explanation = status_help.get(meta.status)
+            if explanation:
+                console.print(f"  [dim]{explanation}[/dim]")
 
 
 @app.command(
