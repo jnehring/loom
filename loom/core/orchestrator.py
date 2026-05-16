@@ -286,7 +286,7 @@ def count_tokens(
     column: Optional[str] = None,
     api_key: Optional[str] = None,
     workers: int = 8,
-    on_progress: Optional[Callable[[int, int, int], None]] = None,
+    on_progress: Optional[Callable[[int, int, int, int], None]] = None,
 ) -> tuple[int, int, int]:
     """Count input tokens for every prompt in the input file.
 
@@ -295,7 +295,10 @@ def count_tokens(
     Raises :class:`TokenCountingNotSupported` if the provider has no
     token-counting API.
 
-    ``on_progress`` is called after each prompt with ``(done, total, errors)``.
+    ``on_progress`` is called after each prompt with
+    ``(done, total, errors, tokens_so_far)`` where ``tokens_so_far`` is the
+    running sum of successfully-counted prompt tokens (used by callers to
+    project a final-total estimate).
     """
     file_path = Path(file_path).resolve()
     if not file_path.exists():
@@ -327,7 +330,7 @@ def count_tokens(
     errors = 0
     done = 1
     if on_progress:
-        on_progress(done, total, errors)
+        on_progress(done, total, errors, total_tokens)
 
     def _run_one(item: PromptItem) -> tuple[Optional[int], Optional[Exception]]:
         try:
@@ -349,6 +352,6 @@ def count_tokens(
                     total_tokens += n
                 done += 1
                 if on_progress:
-                    on_progress(done, total, errors)
+                    on_progress(done, total, errors, total_tokens)
 
     return total_tokens, total, errors

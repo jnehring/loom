@@ -12,7 +12,13 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
 from .core import orchestrator
@@ -324,15 +330,33 @@ def tokens_cmd(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TextColumn("{task.completed}/{task.total}"),
+            TextColumn("[cyan]est_total≈{task.fields[est]}[/cyan]"),
             TextColumn("[red]errors={task.fields[errors]}[/red]"),
             TimeElapsedColumn(),
+            TextColumn("[yellow]eta[/yellow]"),
+            TimeRemainingColumn(compact=True),
             console=console,
             transient=False,
         ) as progress:
-            task_id = progress.add_task("Counting tokens", total=1, errors=0)
+            task_id = progress.add_task(
+                "Counting tokens", total=1, errors=0, est="—"
+            )
 
-            def _on_progress(done: int, total: int, errors: int) -> None:
-                progress.update(task_id, total=total, completed=done, errors=errors)
+            def _on_progress(done: int, total: int, errors: int, tokens_so_far: int) -> None:
+                successful = max(0, done - errors)
+                if successful > 0:
+                    avg = tokens_so_far / successful
+                    est = int(round(avg * total))
+                    est_str = f"{est:,}"
+                else:
+                    est_str = "—"
+                progress.update(
+                    task_id,
+                    total=total,
+                    completed=done,
+                    errors=errors,
+                    est=est_str,
+                )
 
             total_tokens, total, errors = orchestrator.count_tokens(
                 file_path=file,

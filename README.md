@@ -206,11 +206,16 @@ loom cache clear                                                # wipe ~/.loom/c
 
 ```bash
 loom tokens --file prompts.json --provider anthropic --model claude-3-5-sonnet-latest
-# -> [progress bar]
+# Counting tokens ████████░░░░  340/1000  est_total≈36,210  errors=0  0:01:12  eta 0:02:35
 # -> Total input tokens: 12,345 across 100 prompts (provider=anthropic, model=claude-3-5-sonnet-latest, errors=0)
 ```
 
-`loom tokens` calls each provider's official count-tokens endpoint, one prompt at a time, with a concurrent worker pool and a live progress bar. Final line prints the total.
+`loom tokens` calls each provider's official count-tokens endpoint, one prompt at a time, with a concurrent worker pool. The live progress bar shows:
+
+- `done/total` prompts processed,
+- `est_total` — running estimate of the final input-token count, computed as the mean tokens-per-prompt-so-far multiplied by `total` (refines as more prompts complete),
+- `errors`,
+- elapsed time and `eta` (estimated time remaining, based on the current rate).
 
 | Provider | Endpoint | Available |
 | --- | --- | --- |
