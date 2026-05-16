@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 FileType = Literal["json", "csv"]
-ProviderName = Literal["openai", "anthropic", "google"]
+ProviderName = Literal["openai", "anthropic", "google", "openrouter"]
 BatchStatus = Literal[
     "validating", "in_progress", "completed", "failed", "expired", "cancelled", "unknown"
 ]
