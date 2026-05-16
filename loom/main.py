@@ -69,6 +69,11 @@ def run_cmd(
     force: bool = typer.Option(
         False, "--force", help="Overwrite an existing output file without prompting (only meaningful with --sync)."
     ),
+    with_meta: bool = typer.Option(
+        False,
+        "--with-meta",
+        help="Add 'llm_provider' and 'llm_model' columns/fields to the output, alongside 'llm_response'.",
+    ),
 ) -> None:
     if provider == Provider.openrouter and not sync:
         console.print(
@@ -87,6 +92,7 @@ def run_cmd(
             workers=workers,
             use_cache=not no_cache,
             force=force,
+            with_meta=with_meta,
         )
         return
 
@@ -99,6 +105,7 @@ def run_cmd(
             column=col,
             api_key=api_key,
             output_path=output,
+            with_meta=with_meta,
         )
     except Exception as e:  # noqa: BLE001
         console.print(f"[red]Error:[/red] {e}")
@@ -118,6 +125,7 @@ def _run_sync(
     workers: int,
     use_cache: bool,
     force: bool,
+    with_meta: bool,
 ) -> None:
     console.print(
         f"[bold cyan]Weaving live...[/bold cyan] provider={provider.value} model={model} "
@@ -149,6 +157,7 @@ def _run_sync(
                 workers=workers,
                 use_cache=use_cache,
                 force=force,
+                with_meta=with_meta,
                 on_progress=_on_progress,
             )
     except orchestrator.SyncOutputExistsError as exc:
@@ -168,6 +177,7 @@ def _run_sync(
             workers=workers,
             use_cache=use_cache,
             force=True,
+            with_meta=with_meta,
         )
     except Exception as e:  # noqa: BLE001
         console.print(f"[red]Error:[/red] {e}")

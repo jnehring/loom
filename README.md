@@ -61,7 +61,7 @@ pip install -e ".[dev]"
 
 ### Preparing the data
 
-Loom accepts two input formats.
+Loom accepts two input formats — plain or **gzip-compressed** (`.json.gz`, `.csv.gz`). Compressed inputs are decompressed transparently; outputs are always written uncompressed (`.json` / `.csv`).
 
 **JSON** — a list of `{id, prompt}` objects. The `id` is reused as the row key in the merged output.
 
@@ -93,10 +93,10 @@ loom run --file prompts.json \
 
 # ...minutes or hours later...
 loom fetch              # --all is the default; fetches every pending batch
-# -> Fabric complete. id=batch_abc123 -> prompts_results.json
+# -> Fabric complete. id=batch_abc123 -> prompts_results_openai_gpt-4o-mini.json
 ```
 
-The output is written next to the input as `<name>_results.<ext>`. Override with `--output`.
+The output is written next to the input as `<name>_results_<provider>_<model>.<ext>`. Forward slashes and other unsafe characters in the model id are replaced with underscores (e.g. `openai/gpt-4o-mini` → `openai_gpt-4o-mini`). For gzipped inputs the `.gz` is dropped — `data.csv.gz` → `data_results_<provider>_<model>.csv`. Override the path entirely with `--output`.
 
 ## 3. Usage
 
@@ -108,16 +108,17 @@ Submit a dataset as a batch job (default) or run it synchronously with `--sync`.
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--file`, `-f` | _required_ | Input `.json` or `.csv` file. |
+| `--file`, `-f` | _required_ | Input `.json`, `.csv`, `.json.gz`, or `.csv.gz`. |
 | `--provider`, `-p` | _required_ | `openai`, `anthropic`, `google`, or `openrouter`. |
 | `--model`, `-m` | _required_ | Provider-specific model id (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-latest`, `gemini-2.0-flash`, `openai/gpt-4o-mini`). |
 | `--col`, `-c` | — | Prompt column name (required for CSV). |
 | `--api-key` | env / `.env` | Override the resolved API key for this run. |
-| `--output`, `-o` | `<input>_results.<ext>` | Custom output file path. |
+| `--output`, `-o` | `<input>_results_<provider>_<model>.<ext>` | Custom output file path. |
 | `--sync` / `--batch` | `--batch` | `--sync` calls the provider per prompt and writes the output immediately. `--batch` uses the provider's batch API. |
 | `--workers`, `-w` | `8` | Concurrent workers in `--sync` mode. |
 | `--no-cache` | off | Disable the on-disk response cache (`--sync` only). |
 | `--force` | off | Overwrite an existing output file without prompting (`--sync` only). |
+| `--with-meta` | off | Add `llm_provider` and `llm_model` columns (CSV) or fields (JSON) to the output, alongside `llm_response`. |
 
 OpenRouter has no batch API; using `--provider openrouter` without `--sync` exits with a helpful error.
 
@@ -145,7 +146,7 @@ Count input tokens for every prompt using the provider's token-counting API. See
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--file`, `-f` | _required_ | Input `.json` or `.csv` file. |
+| `--file`, `-f` | _required_ | Input `.json`, `.csv`, `.json.gz`, or `.csv.gz`. |
 | `--provider`, `-p` | _required_ | `openai`, `anthropic`, `google`, or `openrouter`. |
 | `--model`, `-m` | _required_ | Provider-specific model id. |
 | `--col`, `-c` | — | Prompt column name (required for CSV). |

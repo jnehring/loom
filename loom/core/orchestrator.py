@@ -20,24 +20,21 @@ def run_batch(
     column: Optional[str] = None,
     api_key: Optional[str] = None,
     output_path: Optional[Path] = None,
+    with_meta: bool = False,
 ) -> BatchMetadata:
     file_path = Path(file_path).resolve()
     if not file_path.exists():
         raise FileNotFoundError(file_path)
 
-    ext = file_path.suffix.lower()
-    if ext == ".csv":
+    file_type, _is_gz = converters.detect_format(file_path)
+    if file_type == "csv":
         if not column:
             raise ValueError("--col is required for CSV input.")
         items, _df, id_map = converters.load_csv(file_path, column)
-        file_type = "csv"
         prompt_column = column
-    elif ext == ".json":
+    else:  # json
         items, id_map = converters.load_json(file_path)
-        file_type = "json"
         prompt_column = None
-    else:
-        raise ValueError(f"Unsupported file type: {ext}. Use .json or .csv.")
 
     if not items:
         raise ValueError("Input file contains no prompts.")
@@ -56,6 +53,7 @@ def run_batch(
         id_map=id_map,
         status="validating",
         output_path=str(output_path) if output_path else None,
+        with_meta=with_meta,
     )
     storage.save_batch(meta)
     return meta
@@ -96,7 +94,11 @@ def fetch_batch(
         return meta, False
 
     original = Path(meta.original_file_path)
-    out_path = Path(meta.output_path) if meta.output_path else converters.default_output_path(original)
+    out_path = (
+        Path(meta.output_path)
+        if meta.output_path
+        else converters.default_output_path(original, meta.provider, meta.model)
+    )
 
     if out_path.exists() and not force:
         raise OutputExistsError(meta, out_path)
@@ -104,9 +106,15 @@ def fetch_batch(
     responses = provider.download_results(meta.batch_id)
 
     if meta.file_type == "json":
-        converters.merge_json(original, responses, out_path)
+        converters.merge_json(
+            original, responses, out_path,
+            with_meta=meta.with_meta, provider=meta.provider, model=meta.model,
+        )
     else:
-        converters.merge_csv(original, meta.id_map, responses, out_path)
+        converters.merge_csv(
+            original, meta.id_map, responses, out_path,
+            with_meta=meta.with_meta, provider=meta.provider, model=meta.model,
+        )
 
     meta.output_path = str(out_path)
 
@@ -171,6 +179,7 @@ def generate_sync(
     workers: int = 8,
     use_cache: bool = True,
     force: bool = False,
+    with_meta: bool = False,
     on_progress: Optional[Callable[[int, int, int, int], None]] = None,
 ) -> tuple[Path, int, int, int]:
     """Run prompts synchronously through a non-batch provider and write output.
@@ -184,22 +193,22 @@ def generate_sync(
     if not file_path.exists():
         raise FileNotFoundError(file_path)
 
-    ext = file_path.suffix.lower()
-    if ext == ".csv":
+    file_type, _is_gz = converters.detect_format(file_path)
+    if file_type == "csv":
         if not column:
             raise ValueError("--col is required for CSV input.")
         items, _df, id_map = converters.load_csv(file_path, column)
-        file_type = "csv"
-    elif ext == ".json":
+    else:  # json
         items, id_map = converters.load_json(file_path)
-        file_type = "json"
-    else:
-        raise ValueError(f"Unsupported file type: {ext}. Use .json or .csv.")
 
     if not items:
         raise ValueError("Input file contains no prompts.")
 
-    out_path = Path(output_path) if output_path else converters.default_output_path(file_path)
+    out_path = (
+        Path(output_path)
+        if output_path
+        else converters.default_output_path(file_path, provider_name, model)
+    )
     if out_path.exists() and not force:
         raise SyncOutputExistsError(out_path)
 
@@ -251,9 +260,15 @@ def generate_sync(
                     on_progress(done, total, cache_hits, errors)
 
     if file_type == "json":
-        converters.merge_json(file_path, responses, out_path)
+        converters.merge_json(
+            file_path, responses, out_path,
+            with_meta=with_meta, provider=provider_name, model=model,
+        )
     else:
-        converters.merge_csv(file_path, id_map, responses, out_path)
+        converters.merge_csv(
+            file_path, id_map, responses, out_path,
+            with_meta=with_meta, provider=provider_name, model=model,
+        )
 
     return out_path, total, cache_hits, errors
 
@@ -286,15 +301,13 @@ def count_tokens(
     if not file_path.exists():
         raise FileNotFoundError(file_path)
 
-    ext = file_path.suffix.lower()
-    if ext == ".csv":
+    file_type, _is_gz = converters.detect_format(file_path)
+    if file_type == "csv":
         if not column:
             raise ValueError("--col is required for CSV input.")
         items, _df, _id_map = converters.load_csv(file_path, column)
-    elif ext == ".json":
+    else:  # json
         items, _id_map = converters.load_json(file_path)
-    else:
-        raise ValueError(f"Unsupported file type: {ext}. Use .json or .csv.")
 
     if not items:
         raise ValueError("Input file contains no prompts.")

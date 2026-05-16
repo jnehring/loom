@@ -36,3 +36,4 @@ class BatchMetadata(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: BatchStatus = "validating"
     output_path: Optional[str] = None
+    with_meta: bool = False
