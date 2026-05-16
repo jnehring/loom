@@ -134,7 +134,19 @@ Poll the provider, download results, merge into the output file.
 | `--keep`, `-k` | off | Keep the metadata file in `~/.loom/batches/` after a successful fetch (default: delete it). |
 | `--force` | off | Overwrite existing output files without prompting. |
 
-For pending batches, `loom fetch` prints the current status and a one-sentence explanation (e.g. _"Provider has accepted the batch and is queueing/preparing it"_). The possible statuses are `validating`, `in_progress`, `completed`, `failed`, `expired`, `cancelled`, and `unknown` (last fetch raised an error — re-run to retry).
+For pending batches, `loom fetch` prints the current status and a one-sentence explanation. The full set of possible statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `validating` | Provider has accepted the batch and is queueing/preparing it; no work has started yet. |
+| `in_progress` | Provider is actively running the prompts; check back later. |
+| `completed` | All prompts finished and results were downloaded — the merged output file has been written. |
+| `failed` | Provider reported the batch as failed; results are not available. |
+| `expired` | Batch exceeded the provider's time limit (typically 24h) before completing. |
+| `cancelled` | Batch was cancelled — either by you on the provider's dashboard, or by the provider itself. |
+| `unknown` | The last fetch attempt raised an error (invalid id, auth failure, network glitch, or an API response Loom doesn't recognise). Re-run `loom fetch` to retry; if it persists, inspect the metadata file under `~/.loom/batches/`. |
+
+`validating` and `in_progress` are the only non-terminal states — `loom fetch` will pick the batch up again on the next run. The other states are terminal: `completed` means the output file is on disk, and `failed` / `expired` / `cancelled` mean no merge happened.
 
 #### `loom list`
 
