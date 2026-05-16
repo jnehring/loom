@@ -1,62 +1,69 @@
 # Loom
 
-> Weave batch LLM jobs across OpenAI, Anthropic, and Google.
+> Weave LLM jobs across OpenAI, Anthropic, Google, and OpenRouter — in batch or live.
 
-Loom is a small Python CLI for **batch LLM processing** of text-only prompts.
-You hand it a JSON or CSV file of prompts, pick a provider and a model, and it
-submits a batch job. Hours later you call `loom fetch`, and it merges the
-responses back into the original file format.
+## 1. Introduction
 
-Because batch jobs can take up to 24 hours, Loom acts as a tiny state machine:
-batch IDs and metadata are persisted under `~/.loom/batches/`, so you can close
-your terminal and come back tomorrow.
+Loom is a small Python CLI for running a dataset of prompts (JSON or CSV) through an LLM and merging the responses back into the original file. It speaks two modes:
 
-## Install
+- **Batch** (`loom run`, default): submits the dataset to the provider's batch API, persists the batch id locally, and later you call `loom fetch` to download and merge results. Cheap (50% off on OpenAI / Anthropic) but asynchronous — can take up to 24 hours.
+- **Sequential** (`loom run --sync`): calls the chat-completion endpoint per prompt with a concurrent worker pool, writes the output file immediately, and uses an on-disk response cache.
+
+It also ships a `loom tokens` command that uses each provider's token-counting API where available.
+
+### Supported providers
+
+| Provider | Batch (`loom run`) | Sequential (`loom run --sync`) | Token counter (`loom tokens`) |
+| --- | --- | --- | --- |
+| OpenAI | ✓ | ✓ | ✗ — no remote API |
+| Anthropic | ✓ | ✓ | ✓ |
+| Google (Gemini) | ✓ | ✓ | ✓ |
+| OpenRouter | ✗ | ✓ | ✗ — no remote API |
+
+### Table of contents
+
+- [1. Introduction](#1-introduction)
+- [2. Getting started](#2-getting-started)
+  - [Installation](#installation)
+  - [Preparing the data](#preparing-the-data)
+  - [Submit a batch request](#submit-a-batch-request)
+- [3. Usage](#3-usage)
+  - [Command-line reference](#command-line-reference)
+  - [Batch vs sequential](#batch-vs-sequential)
+  - [Storing API keys](#storing-api-keys)
+  - [Caching](#caching)
+  - [Token counter](#token-counter)
+  - [Where Loom stores state](#where-loom-stores-state)
+  - [Troubleshooting](#troubleshooting)
+- [4. Developer instructions](#4-developer-instructions)
+- [5. License](#5-license)
+
+## 2. Getting started
+
+### Installation
 
 ```bash
 pip install loom-batch
 ```
 
-The PyPI package is `loom-batch` (the name `loom` was taken), but the CLI command is `loom`.
+The PyPI package is `loom-batch` (the name `loom` was taken); the CLI command is `loom`.
 
-For development:
+From source, for hacking or running tests:
 
 ```bash
 git clone https://github.com/jannehring/loom
 cd loom
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest
 ```
 
-## Quick start
+> **Tip:** if you create the venv with `uv venv`, `pip` is not installed inside it. Use `uv pip install -e ".[dev]"` instead, or recreate the venv with stdlib `python -m venv` (see [Troubleshooting](#troubleshooting)).
 
-### Help
+### Preparing the data
 
-`loom` with no args prints help. So do all of these:
+Loom accepts two input formats.
 
-```bash
-loom -h
-loom --help
-loom -?
-loom run --help
-loom fetch -h
-```
-
-### Setup
-
-Create a `.env` (or export environment variables) with the keys you'll use:
-
-```ini
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_API_KEY=...
-```
-
-Key resolution precedence: `--api-key` flag → environment variable → `.env`.
-
-### JSON input
-
-`prompts.json`:
+**JSON** — a list of `{id, prompt}` objects. The `id` is reused as the row key in the merged output.
 
 ```json
 [
@@ -65,113 +72,250 @@ Key resolution precedence: `--api-key` flag → environment variable → `.env`.
 ]
 ```
 
+**CSV** — any schema; you tell Loom which column holds the prompt with `--col`. All original columns are preserved; a new `llm_response` column is appended.
+
+```csv
+id,text,priority
+1,"Explain quantum physics in one paragraph",low
+2,"Write a haiku about rust",high
+```
+
+### Submit a batch request
+
+Minimal end-to-end run, passing the API key inline (see [Storing API keys](#storing-api-keys) for cleaner options):
+
 ```bash
-loom run --file prompts.json --provider openai --model gpt-4o-mini
+loom run --file prompts.json \
+         --provider openai \
+         --model gpt-4o-mini \
+         --api-key sk-...
 # -> Batch submitted. id=batch_abc123 provider=openai
 
-# ...later (minutes or hours)...
-loom fetch --id batch_abc123
+# ...minutes or hours later...
+loom fetch              # --all is the default; fetches every pending batch
 # -> Fabric complete. id=batch_abc123 -> prompts_results.json
 ```
 
-`prompts_results.json` is the original file with an `llm_response` field added to each entry.
+The output is written next to the input as `<name>_results.<ext>`. Override with `--output`.
 
-### CSV input
+## 3. Usage
 
-`data.csv`:
+### Command-line reference
 
-```csv
-id,text,metadata
-1,"Explain quantum physics in one paragraph",low_priority
-2,"Write a haiku about rust",high_priority
+#### `loom run`
+
+Submit a dataset as a batch job (default) or run it synchronously with `--sync`.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--file`, `-f` | _required_ | Input `.json` or `.csv` file. |
+| `--provider`, `-p` | _required_ | `openai`, `anthropic`, `google`, or `openrouter`. |
+| `--model`, `-m` | _required_ | Provider-specific model id (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-latest`, `gemini-2.0-flash`, `openai/gpt-4o-mini`). |
+| `--col`, `-c` | — | Prompt column name (required for CSV). |
+| `--api-key` | env / `.env` | Override the resolved API key for this run. |
+| `--output`, `-o` | `<input>_results.<ext>` | Custom output file path. |
+| `--sync` / `--batch` | `--batch` | `--sync` calls the provider per prompt and writes the output immediately. `--batch` uses the provider's batch API. |
+| `--workers`, `-w` | `8` | Concurrent workers in `--sync` mode. |
+| `--no-cache` | off | Disable the on-disk response cache (`--sync` only). |
+| `--force` | off | Overwrite an existing output file without prompting (`--sync` only). |
+
+OpenRouter has no batch API; using `--provider openrouter` without `--sync` exits with a helpful error.
+
+#### `loom fetch`
+
+Poll the provider, download results, merge into the output file.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--id`, `-i` | — | Fetch a single batch by id. If set, implies `--no-all`. |
+| `--all` / `--no-all`, `-a` | `--all` | Process every pending batch under `~/.loom/batches/`. This is the default — `loom fetch` with no args walks all batches. |
+| `--api-key` | env / `.env` | Override the resolved API key. |
+| `--keep`, `-k` | off | Keep the metadata file in `~/.loom/batches/` after a successful fetch (default: delete it). |
+| `--force` | off | Overwrite existing output files without prompting. |
+
+For pending batches, `loom fetch` prints the current status and a one-sentence explanation (e.g. _"Provider has accepted the batch and is queueing/preparing it"_). The possible statuses are `validating`, `in_progress`, `completed`, `failed`, `expired`, `cancelled`, and `unknown` (last fetch raised an error — re-run to retry).
+
+#### `loom list`
+
+List every batch known to Loom, with last-seen status, model, and source file. No flags.
+
+#### `loom tokens`
+
+Count input tokens for every prompt using the provider's token-counting API. See [Token counter](#token-counter).
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--file`, `-f` | _required_ | Input `.json` or `.csv` file. |
+| `--provider`, `-p` | _required_ | `openai`, `anthropic`, `google`, or `openrouter`. |
+| `--model`, `-m` | _required_ | Provider-specific model id. |
+| `--col`, `-c` | — | Prompt column name (required for CSV). |
+| `--api-key` | env / `.env` | Override the resolved API key. |
+| `--workers`, `-w` | `8` | Concurrent workers. |
+
+#### `loom cache clear`
+
+Delete every cached response under `~/.loom/cache/`. See [Caching](#caching).
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--yes`, `-y` | off | Skip the confirmation prompt. |
+
+### Batch vs sequential
+
+| | `loom run` (batch, default) | `loom run --sync` (sequential) |
+| --- | --- | --- |
+| Latency | Up to 24h | Real-time |
+| Pricing (OpenAI, Anthropic) | 50% off | Standard |
+| Steps | `run` → wait → `fetch` | Single command |
+| Cache | n/a | On-disk, on by default |
+| OpenRouter | ✗ | ✓ (only mode) |
+| State on disk | `~/.loom/batches/` | None (cache only) |
+
+Pick **batch** when you have a large dataset and don't care about wall-clock time. Pick **sync** when you want results now, or when the provider has no batch API (OpenRouter).
+
+### Storing API keys
+
+Loom resolves keys in this order: **`--api-key` flag → environment variable → `.env` file** in the current working directory (loaded via `python-dotenv`, does not overwrite existing env vars).
+
+Recognised environment variables:
+
+```ini
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=...
+OPENROUTER_API_KEY=sk-or-...
 ```
+
+A `.env` in the working directory is the friction-free option for daily use; `--api-key` is handy for one-offs or shared workstations.
+
+### Caching
+
+In `--sync` mode, Loom caches every response under `~/.loom/cache/`. The cache key is `sha256("<provider>|<model>|<prompt>")`, so changing any of those misses the cache. There is no TTL or eviction — the cache grows monotonically until you clear it.
 
 ```bash
-loom run --file data.csv --col text --provider anthropic --model claude-3-5-sonnet-latest
-loom fetch --all
+loom run --sync -p openai -m gpt-4o-mini -f data.csv -c text   # first run: API calls
+loom run --sync -p openai -m gpt-4o-mini -f data.csv -c text   # second run: 100% cache hits
+loom run --sync -p openai -m gpt-4o-mini -f data.csv -c text --no-cache  # bypass
+loom cache clear                                                # wipe ~/.loom/cache/
 ```
 
-The output `data_results.csv` preserves every original column and appends a new `llm_response` column. Row order is preserved.
+`loom run --sync` reports cache hits live in its progress bar.
 
-## Commands
+### Token counter
 
-| Command | Purpose |
-| --- | --- |
-| `loom run` | Submit a new batch from a `.json` or `.csv` file. |
-| `loom fetch --id <id>` | Check status / download results for one batch. Deletes the metadata file in `~/.loom/batches/` on success. |
-| `loom fetch --all` | Process every pending batch in `~/.loom/batches/`. |
-| `loom fetch ... --keep` | Same as above but keeps the metadata file after success. |
-| `loom fetch ... --force` | Overwrite an existing output file without prompting (default: warn & confirm). |
-| `loom list` | Show all known batches and their last-seen status. |
-| `loom -h` / `-?` / `--help` | Show help. |
+```bash
+loom tokens --file prompts.json --provider anthropic --model claude-3-5-sonnet-latest
+# -> [progress bar]
+# -> Total input tokens: 12,345 across 100 prompts (provider=anthropic, model=claude-3-5-sonnet-latest, errors=0)
+```
 
-### `loom run` flags
+`loom tokens` calls each provider's official count-tokens endpoint, one prompt at a time, with a concurrent worker pool and a live progress bar. Final line prints the total.
 
-| Flag | Description |
-| --- | --- |
-| `--file, -f` | Input file (required). |
-| `--provider, -p` | One of `openai`, `anthropic`, `google`. |
-| `--model, -m` | Provider-specific model id. |
-| `--col, -c` | Prompt column (required for CSV). |
-| `--api-key` | Override the env/.env key. |
-| `--output, -o` | Custom output path (default: `<input>_results.<ext>`). |
+| Provider | Endpoint | Available |
+| --- | --- | --- |
+| Anthropic | `client.messages.count_tokens(...)` → `input_tokens` | ✓ |
+| Google | `client.models.count_tokens(...)` → `total_tokens` | ✓ |
+| OpenAI | — | ✗ (no remote API; use `tiktoken` locally) |
+| OpenRouter | — | ✗ |
 
-## How it works
+For unsupported providers, `loom tokens` prints _"Token counting not available: ..."_ and exits with code 2.
 
-1. **Submit.** Loom converts your file into the provider's required JSONL/inline format, attaches a `custom_id` to every row, uploads, and creates the batch.
-2. **Persist.** A small JSON file is saved to `~/.loom/batches/<provider>_<batch_id>.json`. It contains the batch id, original file path, file type, the prompt column (CSV), and a map from `custom_id` back to the original row key.
-3. **Fetch.** `loom fetch` polls the provider. If the batch is done, it downloads results, looks up each `custom_id` in the id-map, and **merges responses back in original order**.
+### Where Loom stores state
 
-Providers don't guarantee response order — Loom always uses `custom_id` to put rows back where they belong.
+```
+~/.loom/
+├── batches/        # one <provider>_<batch_id>.json per pending or kept batch
+└── cache/          # one <sha256>.json per cached --sync response
+```
 
-## Provider matrix
+- `~/.loom/batches/<provider>_<safe_id>.json` is created by `loom run` (batch mode) and contains `batch_id`, `provider`, `model`, `original_file_path`, `file_type`, the prompt column, an `id_map` mapping internal `custom_id` → original row id, `created_at`, and the last-seen `status`. `loom fetch` updates `status`, downloads results, and (unless `--keep` is passed) deletes the file on success.
+- `~/.loom/cache/<sha256>.json` is the response cache used by `--sync`. Each file holds `{provider, model, response, created_at}`.
 
-| Feature | OpenAI | Anthropic | Google (Gemini) |
-| --- | --- | --- | --- |
-| Endpoint | `/v1/batches` | `/v1/messages/batches` | `batches.create` (genai SDK) |
-| Input form | JSONL (uploaded) | inline `requests[]` | inline `src` list |
-| Timeout | 24h | 24h | varies |
-| Pricing | 50% off | 50% off | standard |
+Both directories are safe to delete by hand: cache will rebuild itself; deleting `batches/` orphans any in-flight batch jobs (they still complete on the provider's side, you just lose Loom's view of them).
 
-For very large Google batches the SDK supports a file/GCS upload path — Loom v0.1 only uses inline requests. If your dataset is huge, split it or fall back to OpenAI/Anthropic.
+### Troubleshooting
 
-## Limitations (v0.1)
+**`ModuleNotFoundError: No module named 'pandas'` right after `pip install -e ".[dev]"`**
+Your `.venv` was probably created with `uv venv`, which doesn't install `pip` inside. Your `pip install` ran against the system / conda `pip` and dropped the packages elsewhere. Fix with `uv pip install -e ".[dev]"`, or recreate the venv with `python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`.
 
-- Text in, text out. No images / tool use / structured output yet.
-- Google: inline requests only (no GCS upload).
-- One model per batch.
-- No automatic retry on failed individual requests; failed items get an empty `llm_response`.
+**`which loom` shows `/opt/miniconda3/bin/loom` even after `source .venv/bin/activate`**
+Conda's path is being prepended after the venv. Either reorder your shell init, or just call the venv binary directly: `./.venv/bin/loom <cmd>`.
 
-## Releasing
+**Google batch `Invalid batch job name: jqpem7...`**
+The stored `batch_id` is missing the required `batches/` prefix (an older Loom version stripped it). Edit `~/.loom/batches/google_<id>.json`, change `"batch_id": "<id>"` to `"batch_id": "batches/<id>"`, and rename the file to `google_batches_<id>.json` so the on-disk filename and the in-file id stay consistent.
 
-CI is wired up in `.github/workflows/`:
+**`status=unknown` in `loom fetch`**
+The previous fetch attempt raised an exception (bad id, network blip, expired key, or an API response Loom doesn't recognise). Re-running `loom fetch` retries; if it persists, run with the provider's SDK directly to surface the underlying error.
 
-- **`test.yml`** runs `pytest` on every push & PR against Python 3.10 / 3.11 / 3.12.
-- **`publish.yml`** runs tests, builds an sdist + wheel, and publishes to PyPI when you push a `v*` tag or publish a GitHub Release. It uses **PyPI Trusted Publishing (OIDC)** — no API token in secrets.
+**`Error: OpenRouter has no batch API`**
+OpenRouter doesn't offer batch processing. Re-run with `--sync`.
 
-### One-time PyPI setup
+## 4. Developer instructions
+
+### Repository layout
+
+```
+loom/
+  main.py                       # CLI entry point (Typer commands)
+  core/
+    orchestrator.py             # run_batch, fetch_batch, generate_sync, count_tokens
+    models.py                   # Pydantic models, ProviderName, BatchStatus
+  providers/
+    base.py                     # Batch provider ABC (submit/check_status/download)
+    sync_base.py                # Sync provider ABC (generate/count_tokens)
+    openai.py, anthropic.py,
+    google.py                   # Batch implementations
+    openai_sync.py, anthropic_sync.py,
+    google_sync.py, openrouter_sync.py   # Sync implementations
+  utils/
+    converters.py               # Load / merge JSON & CSV
+    storage.py                  # ~/.loom/batches/ persistence
+    cache.py                    # ~/.loom/cache/ response cache
+    keys.py                     # API-key resolution
+tests/                          # pytest suite
+.github/workflows/              # CI: test.yml, publish.yml
+pyproject.toml                  # Dependencies and package metadata
+```
+
+### Running unit tests
+
+```bash
+pip install -e ".[dev]"
+pytest                 # quiet
+pytest -v              # verbose
+pytest tests/test_converters.py     # one file
+pytest tests/test_storage.py::test_save_and_load_roundtrip   # one test
+```
+
+### GitHub Actions
+
+- [`.github/workflows/test.yml`](.github/workflows/test.yml) — runs on every push and PR, with a matrix over Python 3.10 / 3.11 / 3.12. Installs the project with `pip install -e ".[dev]"` and runs `pytest -v`.
+- [`.github/workflows/publish.yml`](.github/workflows/publish.yml) — fires when you push a `v*` tag or publish a GitHub Release. It runs tests, builds an sdist + wheel, and uploads to PyPI via **OIDC Trusted Publishing** — no PyPI token is stored in repo secrets.
+
+### Releasing
+
+**One-time PyPI setup:**
 
 1. Create the project on PyPI: https://pypi.org/manage/account/publishing/
-2. Add a **trusted publisher** with these values:
+2. Add a **trusted publisher** with:
    - Owner: `jannehring`
    - Repository: `loom`
    - Workflow: `publish.yml`
    - Environment: `pypi`
-3. In GitHub: **Settings → Environments → New environment → `pypi`** (you can require manual approval here for extra safety).
+3. In GitHub: **Settings → Environments → New environment → `pypi`**. Enable manual approval here if you want a human in the loop for every release.
 
-### Cutting a release
+**Cutting a release:**
 
 ```bash
-# 1. Bump the version in pyproject.toml
-# 2. Commit
+# 1. Bump version in pyproject.toml
+# 2. Commit and tag
 git commit -am "Release v0.1.1"
-# 3. Tag and push
 git tag v0.1.1
 git push origin main --tags
 ```
 
-The `publish` workflow fires on the tag, runs tests, builds, and uploads to PyPI. You can also trigger it manually from the Actions tab (`workflow_dispatch`).
+The `publish` workflow runs on the tag, executes the test suite, builds, and uploads. You can also trigger it manually from the Actions tab (`workflow_dispatch`).
 
-## License
+## 5. License
 
 MIT — see [LICENSE](LICENSE).
