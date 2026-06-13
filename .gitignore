@@ -11,3 +11,8 @@ venv/
 .coverage
 htmlcov/
 .DS_Store
+
+# Evaluation files
+loom/eval/eval_state.json
+loom/eval/*_results*.json
+

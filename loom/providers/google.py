@@ -57,15 +57,30 @@ class GoogleBatchProvider(BatchProvider):
         state = getattr(job.state, "name", str(job.state))
         return _STATE_MAP.get(state, "unknown")  # type: ignore[return-value]
 
-    def download_results(self, batch_id: str) -> dict[str, str]:
+    def download_results(self, batch_id: str, id_map: dict[str, str] | None = None) -> dict[str, str]:
         job = self._retrieve(batch_id)
         out: dict[str, str] = {}
         dest = getattr(job, "dest", None)
         inlined = getattr(dest, "inlined_responses", None) if dest else None
+
+        # Reconstruct the list of custom IDs in submission order
+        custom_ids = []
+        if id_map:
+            custom_ids = list(id_map.keys())
+            try:
+                custom_ids.sort(key=lambda k: int(id_map[k]))
+            except ValueError:
+                pass
+
         if inlined:
-            for entry in inlined:
+            for i, entry in enumerate(inlined):
                 meta = getattr(entry, "metadata", None) or {}
                 cid = meta.get("custom_id", "") if isinstance(meta, dict) else ""
+                if not cid and i < len(custom_ids):
+                    cid = custom_ids[i]
+                if not cid:
+                    cid = f"idx-{i}"
+
                 resp = getattr(entry, "response", None)
                 text = ""
                 if resp is not None:
@@ -76,16 +91,21 @@ class GoogleBatchProvider(BatchProvider):
                         text = "".join(getattr(p, "text", "") or "" for p in parts)
                 out[cid] = text
             return out
+
         # Fallback: file-based output
         file_name = getattr(dest, "file_name", None) if dest else None
         if file_name:
             data = self.client.files.download(file=file_name)
             text = data.decode("utf-8") if isinstance(data, (bytes, bytearray)) else str(data)
-            for line in text.splitlines():
-                if not line.strip():
-                    continue
+            lines = [line for line in text.splitlines() if line.strip()]
+            for i, line in enumerate(lines):
                 obj = json.loads(line)
                 cid = (obj.get("metadata") or {}).get("custom_id", "")
+                if not cid and i < len(custom_ids):
+                    cid = custom_ids[i]
+                if not cid:
+                    cid = f"idx-{i}"
+
                 resp = obj.get("response", {}) or {}
                 candidates = resp.get("candidates", []) or []
                 if candidates:

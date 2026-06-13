@@ -103,7 +103,7 @@ def fetch_batch(
     if out_path.exists() and not force:
         raise OutputExistsError(meta, out_path)
 
-    responses = provider.download_results(meta.batch_id)
+    responses = provider.download_results(meta.batch_id, id_map=meta.id_map)
 
     if meta.file_type == "json":
         converters.merge_json(

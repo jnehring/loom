@@ -46,7 +46,7 @@ class AnthropicBatchProvider(BatchProvider):
         batch = self.client.messages.batches.retrieve(batch_id)
         return _STATUS_MAP.get(batch.processing_status, "unknown")  # type: ignore[return-value]
 
-    def download_results(self, batch_id: str) -> dict[str, str]:
+    def download_results(self, batch_id: str, id_map: dict[str, str] | None = None) -> dict[str, str]:
         out: dict[str, str] = {}
         for result in self.client.messages.batches.results(batch_id):
             cid = result.custom_id

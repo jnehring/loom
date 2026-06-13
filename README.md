@@ -13,30 +13,43 @@ It also ships a `loom tokens` command that uses each provider's token-counting A
 
 ### Supported providers
 
-| Provider | Batch (`loom run`) | Sequential (`loom run --sync`) | Token counter (`loom tokens`) |
-| --- | --- | --- | --- |
-| OpenAI | ✓ | ✓ | ✗ — no remote API |
-| Anthropic | ✓ | ✓ | ✓ |
-| Google (Gemini) | ✓ | ✓ | ✓ |
-| OpenRouter | ✗ | ✓ | ✗ — no remote API |
+| Provider        | Batch (`loom run`) | Sequential (`loom run --sync`) | Token counter (`loom tokens`) |
+| --------------- | ------------------ | ------------------------------ | ----------------------------- |
+| OpenAI          | ✓                  | ✓                              | ✗ — no remote API             |
+| Anthropic       | ✓                  | ✓                              | ✓                             |
+| Google (Gemini) | ✓                  | ✓                              | ✓                             |
+| OpenRouter      | ✗                  | ✓                              | ✗ — no remote API             |
 
 ### Table of contents
 
-- [1. Introduction](#1-introduction)
-- [2. Getting started](#2-getting-started)
-  - [Installation](#installation)
-  - [Preparing the data](#preparing-the-data)
-  - [Submit a batch request](#submit-a-batch-request)
-- [3. Usage](#3-usage)
-  - [Command-line reference](#command-line-reference)
-  - [Batch vs sequential](#batch-vs-sequential)
-  - [Storing API keys](#storing-api-keys)
-  - [Caching](#caching)
-  - [Token counter](#token-counter)
-  - [Where Loom stores state](#where-loom-stores-state)
-  - [Troubleshooting](#troubleshooting)
-- [4. Developer instructions](#4-developer-instructions)
-- [5. License](#5-license)
+- [Loom: LLM Batch Processing Made Easy](#loom-llm-batch-processing-made-easy)
+  - [1. Introduction](#1-introduction)
+    - [Supported providers](#supported-providers)
+    - [Table of contents](#table-of-contents)
+  - [2. Getting started](#2-getting-started)
+    - [Installation](#installation)
+    - [Preparing the data](#preparing-the-data)
+    - [Submit a batch request](#submit-a-batch-request)
+  - [3. Usage](#3-usage)
+    - [Command-line reference](#command-line-reference)
+      - [`loom run`](#loom-run)
+      - [`loom fetch`](#loom-fetch)
+      - [`loom list`](#loom-list)
+      - [`loom tokens`](#loom-tokens)
+      - [`loom cache clear`](#loom-cache-clear)
+    - [Batch vs sequential](#batch-vs-sequential)
+    - [Storing API keys](#storing-api-keys)
+    - [Caching](#caching)
+    - [Token counter](#token-counter)
+    - [Where Loom stores state](#where-loom-stores-state)
+    - [Troubleshooting](#troubleshooting)
+  - [4. Developer instructions](#4-developer-instructions)
+    - [Repository layout](#repository-layout)
+    - [Running unit tests](#running-unit-tests)
+    - [Running provider evaluations](#running-provider-evaluations)
+    - [GitHub Actions](#github-actions)
+    - [Releasing](#releasing)
+  - [5. License](#5-license)
 
 ## 2. Getting started
 
@@ -106,19 +119,19 @@ The output is written next to the input as `<name>_results_<provider>_<model>.<e
 
 Submit a dataset as a batch job (default) or run it synchronously with `--sync`.
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--file`, `-f` | _required_ | Input `.json`, `.csv`, `.json.gz`, or `.csv.gz`. |
-| `--provider`, `-p` | _required_ | `openai`, `anthropic`, `google`, or `openrouter`. |
-| `--model`, `-m` | _required_ | Provider-specific model id (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-latest`, `gemini-2.0-flash`, `openai/gpt-4o-mini`). |
-| `--col`, `-c` | — | Prompt column name (required for CSV). |
-| `--api-key` | env / `.env` | Override the resolved API key for this run. |
-| `--output`, `-o` | `<input>_results_<provider>_<model>.<ext>` | Custom output file path. |
-| `--sync` / `--batch` | `--batch` | `--sync` calls the provider per prompt and writes the output immediately. `--batch` uses the provider's batch API. |
-| `--workers`, `-w` | `8` | Concurrent workers in `--sync` mode. |
-| `--no-cache` | off | Disable the on-disk response cache (`--sync` only). |
-| `--force` | off | Overwrite an existing output file without prompting (`--sync` only). |
-| `--with-meta` | off | Add `llm_provider` and `llm_model` columns (CSV) or fields (JSON) to the output, alongside `llm_response`. |
+| Flag                 | Default                                    | Description                                                                                                            |
+| -------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `--file`, `-f`       | _required_                                 | Input `.json`, `.csv`, `.json.gz`, or `.csv.gz`.                                                                       |
+| `--provider`, `-p`   | _required_                                 | `openai`, `anthropic`, `google`, or `openrouter`.                                                                      |
+| `--model`, `-m`      | _required_                                 | Provider-specific model id (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-latest`, `gemini-2.0-flash`, `openai/gpt-4o-mini`). |
+| `--col`, `-c`        | —                                          | Prompt column name (required for CSV).                                                                                 |
+| `--api-key`          | env / `.env`                               | Override the resolved API key for this run.                                                                            |
+| `--output`, `-o`     | `<input>_results_<provider>_<model>.<ext>` | Custom output file path.                                                                                               |
+| `--sync` / `--batch` | `--batch`                                  | `--sync` calls the provider per prompt and writes the output immediately. `--batch` uses the provider's batch API.     |
+| `--workers`, `-w`    | `8`                                        | Concurrent workers in `--sync` mode.                                                                                   |
+| `--no-cache`         | off                                        | Disable the on-disk response cache (`--sync` only).                                                                    |
+| `--force`            | off                                        | Overwrite an existing output file without prompting (`--sync` only).                                                   |
+| `--with-meta`        | off                                        | Add `llm_provider` and `llm_model` columns (CSV) or fields (JSON) to the output, alongside `llm_response`.             |
 
 OpenRouter has no batch API; using `--provider openrouter` without `--sync` exits with a helpful error.
 
@@ -126,25 +139,25 @@ OpenRouter has no batch API; using `--provider openrouter` without `--sync` exit
 
 Poll the provider, download results, merge into the output file.
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--id`, `-i` | — | Fetch a single batch by id. If set, implies `--no-all`. |
-| `--all` / `--no-all`, `-a` | `--all` | Process every pending batch under `~/.loom/batches/`. This is the default — `loom fetch` with no args walks all batches. |
-| `--api-key` | env / `.env` | Override the resolved API key. |
-| `--keep`, `-k` | off | Keep the metadata file in `~/.loom/batches/` after a successful fetch (default: delete it). |
-| `--force` | off | Overwrite existing output files without prompting. |
+| Flag                       | Default      | Description                                                                                                              |
+| -------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `--id`, `-i`               | —            | Fetch a single batch by id. If set, implies `--no-all`.                                                                  |
+| `--all` / `--no-all`, `-a` | `--all`      | Process every pending batch under `~/.loom/batches/`. This is the default — `loom fetch` with no args walks all batches. |
+| `--api-key`                | env / `.env` | Override the resolved API key.                                                                                           |
+| `--keep`, `-k`             | off          | Keep the metadata file in `~/.loom/batches/` after a successful fetch (default: delete it).                              |
+| `--force`                  | off          | Overwrite existing output files without prompting.                                                                       |
 
 For pending batches, `loom fetch` prints the current status and a one-sentence explanation. The full set of possible statuses:
 
-| Status | Meaning |
-| --- | --- |
-| `validating` | Provider has accepted the batch and is queueing/preparing it; no work has started yet. |
-| `in_progress` | Provider is actively running the prompts; check back later. |
-| `completed` | All prompts finished and results were downloaded — the merged output file has been written. |
-| `failed` | Provider reported the batch as failed; results are not available. |
-| `expired` | Batch exceeded the provider's time limit (typically 24h) before completing. |
-| `cancelled` | Batch was cancelled — either by you on the provider's dashboard, or by the provider itself. |
-| `unknown` | The last fetch attempt raised an error (invalid id, auth failure, network glitch, or an API response Loom doesn't recognise). Re-run `loom fetch` to retry; if it persists, inspect the metadata file under `~/.loom/batches/`. |
+| Status        | Meaning                                                                                                                                                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validating`  | Provider has accepted the batch and is queueing/preparing it; no work has started yet.                                                                                                                                          |
+| `in_progress` | Provider is actively running the prompts; check back later.                                                                                                                                                                     |
+| `completed`   | All prompts finished and results were downloaded — the merged output file has been written.                                                                                                                                     |
+| `failed`      | Provider reported the batch as failed; results are not available.                                                                                                                                                               |
+| `expired`     | Batch exceeded the provider's time limit (typically 24h) before completing.                                                                                                                                                     |
+| `cancelled`   | Batch was cancelled — either by you on the provider's dashboard, or by the provider itself.                                                                                                                                     |
+| `unknown`     | The last fetch attempt raised an error (invalid id, auth failure, network glitch, or an API response Loom doesn't recognise). Re-run `loom fetch` to retry; if it persists, inspect the metadata file under `~/.loom/batches/`. |
 
 `validating` and `in_progress` are the only non-terminal states — `loom fetch` will pick the batch up again on the next run. The other states are terminal: `completed` means the output file is on disk, and `failed` / `expired` / `cancelled` mean no merge happened.
 
@@ -156,33 +169,33 @@ List every batch known to Loom, with last-seen status, model, and source file. N
 
 Count input tokens for every prompt using the provider's token-counting API. See [Token counter](#token-counter).
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--file`, `-f` | _required_ | Input `.json`, `.csv`, `.json.gz`, or `.csv.gz`. |
-| `--provider`, `-p` | _required_ | `openai`, `anthropic`, `google`, or `openrouter`. |
-| `--model`, `-m` | _required_ | Provider-specific model id. |
-| `--col`, `-c` | — | Prompt column name (required for CSV). |
-| `--api-key` | env / `.env` | Override the resolved API key. |
-| `--workers`, `-w` | `8` | Concurrent workers. |
+| Flag               | Default      | Description                                       |
+| ------------------ | ------------ | ------------------------------------------------- |
+| `--file`, `-f`     | _required_   | Input `.json`, `.csv`, `.json.gz`, or `.csv.gz`.  |
+| `--provider`, `-p` | _required_   | `openai`, `anthropic`, `google`, or `openrouter`. |
+| `--model`, `-m`    | _required_   | Provider-specific model id.                       |
+| `--col`, `-c`      | —            | Prompt column name (required for CSV).            |
+| `--api-key`        | env / `.env` | Override the resolved API key.                    |
+| `--workers`, `-w`  | `8`          | Concurrent workers.                               |
 
 #### `loom cache clear`
 
 Delete every cached response under `~/.loom/cache/`. See [Caching](#caching).
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--yes`, `-y` | off | Skip the confirmation prompt. |
+| Flag          | Default | Description                   |
+| ------------- | ------- | ----------------------------- |
+| `--yes`, `-y` | off     | Skip the confirmation prompt. |
 
 ### Batch vs sequential
 
-| | `loom run` (batch, default) | `loom run --sync` (sequential) |
-| --- | --- | --- |
-| Latency | Up to 24h | Real-time |
-| Pricing (OpenAI, Anthropic) | 50% off | Standard |
-| Steps | `run` → wait → `fetch` | Single command |
-| Cache | n/a | On-disk, on by default |
-| OpenRouter | ✗ | ✓ (only mode) |
-| State on disk | `~/.loom/batches/` | None (cache only) |
+|                             | `loom run` (batch, default) | `loom run --sync` (sequential) |
+| --------------------------- | --------------------------- | ------------------------------ |
+| Latency                     | Up to 24h                   | Real-time                      |
+| Pricing (OpenAI, Anthropic) | 50% off                     | Standard                       |
+| Steps                       | `run` → wait → `fetch`      | Single command                 |
+| Cache                       | n/a                         | On-disk, on by default         |
+| OpenRouter                  | ✗                           | ✓ (only mode)                  |
+| State on disk               | `~/.loom/batches/`          | None (cache only)              |
 
 Pick **batch** when you have a large dataset and don't care about wall-clock time. Pick **sync** when you want results now, or when the provider has no batch API (OpenRouter).
 
@@ -229,12 +242,12 @@ loom tokens --file prompts.json --provider anthropic --model claude-3-5-sonnet-l
 - `errors`,
 - elapsed time and `eta` (estimated time remaining, based on the current rate).
 
-| Provider | Endpoint | Available |
-| --- | --- | --- |
-| Anthropic | `client.messages.count_tokens(...)` → `input_tokens` | ✓ |
-| Google | `client.models.count_tokens(...)` → `total_tokens` | ✓ |
-| OpenAI | — | ✗ (no remote API; use `tiktoken` locally) |
-| OpenRouter | — | ✗ |
+| Provider   | Endpoint                                             | Available                                 |
+| ---------- | ---------------------------------------------------- | ----------------------------------------- |
+| Anthropic  | `client.messages.count_tokens(...)` → `input_tokens` | ✓                                         |
+| Google     | `client.models.count_tokens(...)` → `total_tokens`   | ✓                                         |
+| OpenAI     | —                                                    | ✗ (no remote API; use `tiktoken` locally) |
+| OpenRouter | —                                                    | ✗                                         |
 
 For unsupported providers, `loom tokens` prints _"Token counting not available: ..."_ and exits with code 2.
 
@@ -278,6 +291,8 @@ loom/
   core/
     orchestrator.py             # run_batch, fetch_batch, generate_sync, count_tokens
     models.py                   # Pydantic models, ProviderName, BatchStatus
+  eval/
+    eval_providers.py           # Provider evaluation script (init / fetch)
   providers/
     base.py                     # Batch provider ABC (submit/check_status/download)
     sync_base.py                # Sync provider ABC (generate/count_tokens)
@@ -304,6 +319,27 @@ pytest -v              # verbose
 pytest tests/test_converters.py     # one file
 pytest tests/test_storage.py::test_save_and_load_roundtrip   # one test
 ```
+
+### Running provider evaluations
+
+Loom includes a provider-level evaluation script to test both synchronous and batch APIs for all supported providers using a small dataset of 3 prompts with predictable single-word outputs. This requires the API keys to be configured and it generates costs.
+
+```bash
+# 1. Initialize evaluation: test sync APIs and submit batch jobs (default: all providers)
+python -m loom.eval.eval_providers init
+
+# Alternatively, initialize for a single provider (e.g. google, openai, or anthropic)
+python -m loom.eval.eval_providers init google
+
+# 2. Fetch evaluation results: check batch statuses and download/validate results (default: all providers)
+python -m loom.eval.eval_providers fetch
+
+# Alternatively, fetch for a single provider only
+python -m loom.eval.eval_providers fetch google
+```
+
+This runs against live provider APIs. Configure your API keys (e.g. `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`) in your environment or a `.env` file before running. Any provider without a configured API key will be skipped automatically.
+
 
 ### GitHub Actions
 

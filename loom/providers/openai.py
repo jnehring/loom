@@ -69,7 +69,7 @@ class OpenAIBatchProvider(BatchProvider):
         batch = self.client.batches.retrieve(batch_id)
         return _STATUS_MAP.get(batch.status, "unknown")  # type: ignore[return-value]
 
-    def download_results(self, batch_id: str) -> dict[str, str]:
+    def download_results(self, batch_id: str, id_map: dict[str, str] | None = None) -> dict[str, str]:
         batch = self.client.batches.retrieve(batch_id)
         if not batch.output_file_id:
             return {}

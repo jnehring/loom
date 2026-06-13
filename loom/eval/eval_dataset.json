@@ -1,0 +1,14 @@
+[
+  {
+    "id": "p1",
+    "prompt": "say \"cow\" (the single word only)"
+  },
+  {
+    "id": "p2",
+    "prompt": "say \"bird\" (the single word only)"
+  },
+  {
+    "id": "p3",
+    "prompt": "say \"hello\" (the single word only)"
+  }
+]
