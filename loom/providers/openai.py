@@ -10,6 +10,7 @@ import json
 from typing import TYPE_CHECKING
 
 from ..core.models import BatchStatus, PromptItem
+from ..utils.errors import format_api_error
 from .base import BatchProvider
 
 if TYPE_CHECKING:
@@ -69,18 +70,28 @@ class OpenAIBatchProvider(BatchProvider):
         batch = self.client.batches.retrieve(batch_id)
         return _STATUS_MAP.get(batch.status, "unknown")  # type: ignore[return-value]
 
-    def download_results(self, batch_id: str, id_map: dict[str, str] | None = None) -> dict[str, str]:
+    def download_results(
+        self, batch_id: str, id_map: dict[str, str] | None = None
+    ) -> tuple[dict[str, str], dict[str, str]]:
         batch = self.client.batches.retrieve(batch_id)
         if not batch.output_file_id:
-            return {}
+            return {}, {}
         content = self.client.files.content(batch.output_file_id)
         text = content.read().decode("utf-8") if hasattr(content, "read") else content.text
         out: dict[str, str] = {}
+        errors: dict[str, str] = {}
         for line in text.splitlines():
             if not line.strip():
                 continue
             obj = json.loads(line)
             cid = obj.get("custom_id", "")
+            top_error = obj.get("error")
+            if top_error:
+                out[cid] = ""
+                msg = format_api_error(top_error)
+                if msg:
+                    errors[cid] = msg
+                continue
             resp = obj.get("response", {}) or {}
             body = resp.get("body", {}) or {}
             choices = body.get("choices") or []
@@ -89,4 +100,19 @@ class OpenAIBatchProvider(BatchProvider):
                 out[cid] = msg.get("content", "") or ""
             else:
                 out[cid] = ""
-        return out
+                body_error = body.get("error")
+                if body_error:
+                    msg = format_api_error(body_error)
+                    if msg:
+                        errors[cid] = msg
+        return out, errors
+
+    def batch_error_message(self, batch_id: str) -> str | None:
+        batch = self.client.batches.retrieve(batch_id)
+        batch_errors = getattr(batch, "errors", None)
+        data = getattr(batch_errors, "data", None) if batch_errors else None
+        if not data:
+            return None
+        messages = [format_api_error(item) for item in data]
+        messages = [m for m in messages if m]
+        return "; ".join(messages) if messages else None

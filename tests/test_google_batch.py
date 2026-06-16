@@ -27,10 +27,13 @@ def test_google_batch_download_inlined_with_custom_id():
     }
     
     results = provider.download_results("batch-123", id_map=id_map)
-    assert results == {
-        "cid-1": "Ans 1",
-        "cid-2": "Ans 2",
-    }
+    assert results == (
+        {
+            "cid-1": "Ans 1",
+            "cid-2": "Ans 2",
+        },
+        {},
+    )
 
 def test_google_batch_download_inlined_fallback_to_index():
     provider = GoogleBatchProvider(api_key="fake")
@@ -56,10 +59,13 @@ def test_google_batch_download_inlined_fallback_to_index():
     }
     
     results = provider.download_results("batch-123", id_map=id_map)
-    assert results == {
-        "cid-1": "Ans 1",
-        "cid-2": "Ans 2",
-    }
+    assert results == (
+        {
+            "cid-1": "Ans 1",
+            "cid-2": "Ans 2",
+        },
+        {},
+    )
 
 def test_google_batch_download_file_fallback_to_index():
     provider = GoogleBatchProvider(api_key="fake")
@@ -84,7 +90,10 @@ def test_google_batch_download_file_fallback_to_index():
     }
     
     results = provider.download_results("batch-123", id_map=id_map)
-    assert results == {
-        "cid-1": "Ans 1",
-        "cid-2": "Ans 2",
-    }
+    assert results == (
+        {
+            "cid-1": "Ans 1",
+            "cid-2": "Ans 2",
+        },
+        {},
+    )

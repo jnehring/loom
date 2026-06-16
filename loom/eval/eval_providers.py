@@ -152,7 +152,7 @@ def run_fetch(target_provider=None):
             
         print(f"\n--- Fetching batch '{batch_id}' for provider '{provider}' ---")
         try:
-            meta, done = orchestrator.fetch_batch(batch_id)
+            meta, done, _prompt_errors = orchestrator.fetch_batch(batch_id)
             print(f"  Status: {meta.status}")
             
             if done:

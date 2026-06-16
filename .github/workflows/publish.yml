@@ -1,18 +1,94 @@
 name: publish
 
 on:
-  push:
-    tags: ["v*"]          # e.g. v0.1.0, v0.2.0
-  release:
-    types: [published]
-  workflow_dispatch:      # manual trigger from the Actions tab
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump type
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: read
 
 jobs:
-  # 1. Re-run the test suite before publishing.
+  bump:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump version
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          python3 <<'PY'
+          import os, re
+          from pathlib import Path
+
+          bump = os.environ["BUMP"]
+          version_re = re.compile(r'^version\s*=\s*"(\d+)\.(\d+)\.(\d+)"', re.M)
+          pyproject = Path("pyproject.toml")
+          content = pyproject.read_text()
+          match = version_re.search(content)
+          if not match:
+              raise SystemExit("Could not parse version from pyproject.toml")
+
+          major, minor, patch = (int(x) for x in match.groups())
+          if bump == "major":
+              major, minor, patch = major + 1, 0, 0
+          elif bump == "minor":
+              minor, patch = minor + 1, 0
+          else:
+              patch += 1
+
+          version = f"{major}.{minor}.{patch}"
+          tag = f"v{version}"
+
+          pyproject.write_text(
+              version_re.sub(f'version = "{version}"', content, count=1)
+          )
+
+          init = Path("loom/__init__.py")
+          init.write_text(
+              re.sub(
+                  r'^__version__\s*=\s*"[^"]+"',
+                  f'__version__ = "{version}"',
+                  init.read_text(),
+                  count=1,
+                  flags=re.M,
+              )
+          )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"version={version}\n")
+              out.write(f"tag={tag}\n")
+          PY
+
+      - name: Upload bumped version files
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-bump
+          path: |
+            pyproject.toml
+            loom/__init__.py
+
   test:
+    needs: bump
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: version-bump
+          path: .
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -22,35 +98,20 @@ jobs:
           pip install -e ".[dev]"
       - run: pytest -v
 
-  # 2. Build sdist + wheel.
   build:
-    needs: test
+    needs: [bump, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: version-bump
+          path: .
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install build tool
         run: python -m pip install --upgrade build
-      - name: Update version from tag
-        run: |
-          if [[ $GITHUB_REF_NAME =~ ^v[0-9] ]]; then
-            VERSION=${GITHUB_REF_NAME#v}
-            python -c "
-          import re, sys
-          content = open('pyproject.toml').read()
-          updated = re.sub(r'version\s*=\s*\"[^\"]+\"', f'version = \"{sys.argv[1]}\"', content)
-          open('pyproject.toml', 'w').write(updated)
-            " "$VERSION"
-            python -c "
-          import re, sys
-          content = open('loom/__init__.py').read()
-          updated = re.sub(r'__version__\s*=\s*\"[^\"]+\"', f'__version__ = \"{sys.argv[1]}\"', content)
-          open('loom/__init__.py', 'w').write(updated)
-            " "$VERSION"
-            echo "Updated version in pyproject.toml and loom/__init__.py to $VERSION"
-          fi
       - name: Build distributions
         run: python -m build
       - name: Upload artifact
@@ -59,15 +120,44 @@ jobs:
           name: dist
           path: dist/
 
-  # 3. Publish to PyPI using Trusted Publishing (OIDC).
-  #    No API token required — configure the publisher on PyPI:
-  #    https://docs.pypi.org/trusted-publishers/
-  publish:
-    needs: build
+  push:
+    needs: [bump, test, build]
     runs-on: ubuntu-latest
     permissions:
-      id-token: write     # required for OIDC
-      contents: read      # required for workflow access
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: version-bump
+          path: .
+      - name: Commit, tag, and push
+        run: |
+          TAG="${{ needs.bump.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml loom/__init__.py
+          git commit -m "Release ${TAG}"
+          git tag "${TAG}"
+          git push origin HEAD
+          git push origin "${TAG}"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ needs.bump.outputs.tag }}" \
+            --title "${{ needs.bump.outputs.tag }}" \
+            --generate-notes
+
+  publish:
+    needs: [build, push]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Download dist
         uses: actions/download-artifact@v4

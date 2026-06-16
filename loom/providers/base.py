@@ -22,6 +22,12 @@ class BatchProvider(ABC):
         """Return a normalized status string."""
 
     @abstractmethod
-    def download_results(self, batch_id: str, id_map: dict[str, str] | None = None) -> dict[str, str]:
-        """Return {custom_id: response_text} for a completed batch."""
+    def download_results(
+        self, batch_id: str, id_map: dict[str, str] | None = None
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Return ({custom_id: response_text}, {custom_id: error_message}) for a completed batch."""
+
+    def batch_error_message(self, batch_id: str) -> str | None:
+        """Return a provider-level failure message when the batch did not complete."""
+        return None
 

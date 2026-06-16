@@ -344,7 +344,7 @@ This runs against live provider APIs. Configure your API keys (e.g. `OPENAI_API_
 ### GitHub Actions
 
 - [`.github/workflows/test.yml`](.github/workflows/test.yml) — runs on every push and PR, with a matrix over Python 3.10 / 3.11 / 3.12. Installs the project with `pip install -e ".[dev]"` and runs `pytest -v`.
-- [`.github/workflows/publish.yml`](.github/workflows/publish.yml) — fires when you push a `v*` tag or publish a GitHub Release. It runs tests, builds an sdist + wheel, and uploads to PyPI via **OIDC Trusted Publishing** — no PyPI token is stored in repo secrets.
+- [`.github/workflows/publish.yml`](.github/workflows/publish.yml) — manual release workflow (`workflow_dispatch`). Pick **patch**, **minor**, or **major**, and it bumps `pyproject.toml` + `loom/__init__.py`, runs tests, builds an sdist + wheel, commits and tags the release, creates a GitHub Release, and uploads to PyPI via **OIDC Trusted Publishing** — no PyPI token is stored in repo secrets.
 
 ### Releasing
 
@@ -360,15 +360,11 @@ This runs against live provider APIs. Configure your API keys (e.g. `OPENAI_API_
 
 **Cutting a release:**
 
-```bash
-# 1. Bump version in pyproject.toml
-# 2. Commit and tag
-git commit -am "Release v0.1.1"
-git tag v0.1.1
-git push origin main --tags
-```
+1. Open **Actions → publish → Run workflow** on `main`.
+2. Choose **patch**, **minor**, or **major** (e.g. `0.1.0` → `0.1.1` / `0.2.0` / `1.0.0`).
+3. The workflow bumps the version, runs tests, builds, commits `Release vX.Y.Z`, pushes the tag, creates a GitHub Release, and publishes to PyPI.
 
-The `publish` workflow runs on the tag, executes the test suite, builds, and uploads. You can also trigger it manually from the Actions tab (`workflow_dispatch`).
+The version bump is only pushed if tests and the build succeed.
 
 ## 5. License
 

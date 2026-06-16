@@ -10,6 +10,7 @@ from ..core.models import BatchMetadata, ProviderName, PromptItem
 from ..providers import get_provider, get_sync_provider
 from ..utils import cache as response_cache
 from ..utils import converters, storage
+from ..utils.errors import format_exception
 from ..utils.keys import resolve_api_key
 
 
@@ -73,8 +74,8 @@ def fetch_batch(
     api_key: Optional[str] = None,
     keep: bool = False,
     force: bool = False,
-) -> tuple[BatchMetadata, bool]:
-    """Return (metadata, done). If done, results have been merged to output_path.
+) -> tuple[BatchMetadata, bool, dict[str, str]]:
+    """Return (metadata, done, prompt_errors). If done, results have been merged to output_path.
 
     On successful completion the stored metadata file in ~/.loom/batches/ is
     deleted, unless ``keep=True`` is passed.
@@ -91,7 +92,9 @@ def fetch_batch(
 
     if status != "completed":
         storage.save_batch(meta)
-        return meta, False
+        batch_error = provider.batch_error_message(meta.batch_id)
+        prompt_errors = {"batch": batch_error} if batch_error else {}
+        return meta, False, prompt_errors
 
     original = Path(meta.original_file_path)
     out_path = (
@@ -103,7 +106,7 @@ def fetch_batch(
     if out_path.exists() and not force:
         raise OutputExistsError(meta, out_path)
 
-    responses = provider.download_results(meta.batch_id, id_map=meta.id_map)
+    responses, prompt_errors = provider.download_results(meta.batch_id, id_map=meta.id_map)
 
     if meta.file_type == "json":
         converters.merge_json(
@@ -122,7 +125,7 @@ def fetch_batch(
         storage.save_batch(meta)
     else:
         storage.delete_batch(meta.batch_id)
-    return meta, True
+    return meta, True, prompt_errors
 
 
 def fetch_all(
@@ -130,7 +133,7 @@ def fetch_all(
     keep: bool = False,
     force: bool = False,
     on_conflict=None,
-) -> list[tuple[BatchMetadata, bool]]:
+) -> list[tuple[BatchMetadata, bool, dict[str, str]]]:
     """Fetch every pending batch.
 
     ``on_conflict`` is an optional callable ``(meta, out_path) -> bool`` invoked
@@ -152,9 +155,9 @@ def fetch_all(
                     fetch_batch(meta.batch_id, api_key=api_key, keep=keep, force=True)
                 )
             else:
-                results.append((exc.meta, False))
+                results.append((exc.meta, False, {}))
         except Exception:  # noqa: BLE001
-            results.append((meta, False))
+            results.append((meta, False, {}))
             meta.status = "unknown"
     return results
 
@@ -181,10 +184,10 @@ def generate_sync(
     force: bool = False,
     with_meta: bool = False,
     on_progress: Optional[Callable[[int, int, int, int], None]] = None,
-) -> tuple[Path, int, int, int]:
+) -> tuple[Path, int, int, int, dict[str, str]]:
     """Run prompts synchronously through a non-batch provider and write output.
 
-    Returns ``(output_path, total, cache_hits, errors)``.
+    Returns ``(output_path, total, cache_hits, errors, error_messages)``.
 
     ``on_progress`` is called after each prompt completes with
     ``(done, total, cache_hits, errors)``.
@@ -217,6 +220,7 @@ def generate_sync(
 
     total = len(items)
     responses: dict[str, str] = {}
+    error_messages: dict[str, str] = {}
     cache_hits = 0
     errors = 0
 
@@ -255,6 +259,7 @@ def generate_sync(
                 responses[cid] = text
                 if err is not None:
                     errors += 1
+                    error_messages[cid] = format_exception(err)
                 done += 1
                 if on_progress:
                     on_progress(done, total, cache_hits, errors)
@@ -270,7 +275,7 @@ def generate_sync(
             with_meta=with_meta, provider=provider_name, model=model,
         )
 
-    return out_path, total, cache_hits, errors
+    return out_path, total, cache_hits, errors, error_messages
 
 
 # ---------- Token counting ----------

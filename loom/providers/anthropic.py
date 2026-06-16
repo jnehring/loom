@@ -6,6 +6,7 @@ Docs: https://platform.claude.com/docs/en/build-with-claude/batch-processing
 from __future__ import annotations
 
 from ..core.models import BatchStatus, PromptItem
+from ..utils.errors import format_api_error
 from .base import BatchProvider
 
 
@@ -46,8 +47,11 @@ class AnthropicBatchProvider(BatchProvider):
         batch = self.client.messages.batches.retrieve(batch_id)
         return _STATUS_MAP.get(batch.processing_status, "unknown")  # type: ignore[return-value]
 
-    def download_results(self, batch_id: str, id_map: dict[str, str] | None = None) -> dict[str, str]:
+    def download_results(
+        self, batch_id: str, id_map: dict[str, str] | None = None
+    ) -> tuple[dict[str, str], dict[str, str]]:
         out: dict[str, str] = {}
+        errors: dict[str, str] = {}
         for result in self.client.messages.batches.results(batch_id):
             cid = result.custom_id
             if result.result.type == "succeeded":
@@ -60,4 +64,10 @@ class AnthropicBatchProvider(BatchProvider):
                 out[cid] = "".join(parts)
             else:
                 out[cid] = ""
-        return out
+                if result.result.type == "errored":
+                    msg = format_api_error(result.result.error)
+                    if msg:
+                        errors[cid] = msg
+                elif result.result.type == "canceled":
+                    errors[cid] = "canceled"
+        return out, errors

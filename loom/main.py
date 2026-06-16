@@ -38,6 +38,14 @@ app = typer.Typer(
 console = Console()
 
 
+def _print_prompt_errors(errors: dict[str, str]) -> None:
+    if not errors:
+        return
+    console.print(f"[red]{len(errors)} error(s):[/red]")
+    for cid, msg in sorted(errors.items()):
+        console.print(f"  [dim]{cid}:[/dim] {msg}")
+
+
 class Provider(str, Enum):
     openai = "openai"
     anthropic = "anthropic"
@@ -153,7 +161,7 @@ def _run_sync(
             def _on_progress(done: int, total: int, hits: int, errors: int) -> None:
                 progress.update(task_id, total=total, completed=done, hits=hits, errors=errors)
 
-            out_path, total, hits, errors = orchestrator.generate_sync(
+            out_path, total, hits, errors, error_messages = orchestrator.generate_sync(
                 file_path=file,
                 provider_name=provider.value,
                 model=model,
@@ -173,7 +181,7 @@ def _run_sync(
         if not typer.confirm("Overwrite?", default=False):
             console.print("[dim]Aborted. Re-run with --force to overwrite.[/dim]")
             raise typer.Exit(code=0)
-        out_path, total, hits, errors = orchestrator.generate_sync(
+        out_path, total, hits, errors, error_messages = orchestrator.generate_sync(
             file_path=file,
             provider_name=provider.value,
             model=model,
@@ -195,6 +203,7 @@ def _run_sync(
         f"wrote [bold]{out_path}[/bold] "
         f"({total} prompts, {hits} cache hits, {errors} errors)"
     )
+    _print_prompt_errors(error_messages)
 
 
 @app.command(
@@ -264,12 +273,13 @@ def fetch_cmd(
         "unknown": "Last fetch attempt raised an error (e.g. invalid id, auth, or network); re-run to retry.",
     }
 
-    for meta, done in targets:
+    for meta, done, prompt_errors in targets:
         if done:
             suffix = "" if keep else " [dim](metadata removed)[/dim]"
             console.print(
                 f"[green]Fabric complete.[/green] id={meta.batch_id} -> [bold]{meta.output_path}[/bold]{suffix}"
             )
+            _print_prompt_errors(prompt_errors)
         else:
             console.print(
                 f"[yellow]Checking the loom...[/yellow] id={meta.batch_id} status={meta.status}"
@@ -277,6 +287,7 @@ def fetch_cmd(
             explanation = status_help.get(meta.status)
             if explanation:
                 console.print(f"  [dim]{explanation}[/dim]")
+            _print_prompt_errors(prompt_errors)
 
 
 @app.command(
