@@ -76,6 +76,7 @@ def test_generate_sync_collects_error_messages(monkeypatch, tmp_path):
         file_path=input_path,
         provider_name="google",
         model="gemini-test",
+        api_key="fake",
         use_cache=False,
         force=True,
     )
