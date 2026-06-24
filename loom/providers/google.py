@@ -4,6 +4,10 @@ Docs: https://ai.google.dev/gemini-api/docs/batch-api
 
 Uses the google-genai SDK with inline requests. For very large inputs the
 SDK supports a file/GCS upload path which is out of scope for v1.
+
+Google's batch API may return inlined responses out of submission order
+(especially for 100+ requests). Results are matched via ``metadata.custom_id``
+on each response — never by list position.
 """
 
 from __future__ import annotations
@@ -14,6 +18,80 @@ from typing import Any
 from ..core.models import BatchStatus, PromptItem
 from ..utils.errors import format_api_error
 from .base import BatchProvider
+
+
+_METADATA_PATCHED = False
+
+
+def _ensure_inlined_response_metadata() -> None:
+    """Backfill metadata on InlinedResponse for google-genai < 1.61.0."""
+    global _METADATA_PATCHED
+    if _METADATA_PATCHED:
+        return
+    _METADATA_PATCHED = True
+
+    from google.genai import types
+
+    if "metadata" in types.InlinedResponse.model_fields:
+        return
+
+    import typing
+
+    import google.genai.batches as batches
+    from google.genai._common import get_value_by_path as getv
+    from google.genai._common import set_value_by_path as setv
+    from pydantic.fields import FieldInfo
+
+    original = batches._InlinedResponse_from_mldev
+
+    def patched(
+        from_object: dict[str, typing.Any] | object,
+        parent_object: dict[str, typing.Any] | None = None,
+    ) -> dict[str, typing.Any]:
+        to_object = original(from_object, parent_object)
+        if getv(from_object, ["metadata"]) is not None:
+            setv(to_object, ["metadata"], getv(from_object, ["metadata"]))
+        return to_object
+
+    batches._InlinedResponse_from_mldev = patched
+    types.InlinedResponse.model_fields["metadata"] = FieldInfo(
+        annotation=dict[str, Any],
+        default_factory=dict,
+        description="The metadata associated with the request.",
+    )
+    types.InlinedResponse.model_rebuild(force=True)
+    if hasattr(types, "BatchJobDestination"):
+        types.BatchJobDestination.model_rebuild(force=True)
+    if hasattr(types, "BatchJob"):
+        types.BatchJob.model_rebuild(force=True)
+
+
+def _metadata_dict(entry: Any) -> dict[str, Any]:
+    meta = getattr(entry, "metadata", None)
+    if isinstance(meta, dict):
+        return meta
+    if isinstance(entry, dict):
+        raw = entry.get("metadata")
+        if isinstance(raw, dict):
+            return raw
+    return {}
+
+
+def _custom_id_from_metadata(meta: dict[str, Any]) -> str:
+    for key in ("custom_id", "id", "request_id"):
+        val = meta.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
+def _missing_metadata_error() -> ValueError:
+    return ValueError(
+        "Google Batch API returned one or more responses without metadata; "
+        "cannot reliably match results to prompts because the API may return "
+        "responses out of submission order. Upgrade google-genai to >=1.61.0 "
+        "and re-fetch. If the problem persists, re-submit the batch."
+    )
 
 
 _STATE_MAP = {
@@ -32,6 +110,7 @@ class GoogleBatchProvider(BatchProvider):
 
     def __init__(self, api_key: str) -> None:
         super().__init__(api_key)
+        _ensure_inlined_response_metadata()
         from google import genai
         self.client = genai.Client(api_key=api_key)
 
@@ -67,23 +146,12 @@ class GoogleBatchProvider(BatchProvider):
         dest = getattr(job, "dest", None)
         inlined = getattr(dest, "inlined_responses", None) if dest else None
 
-        # Reconstruct the list of custom IDs in submission order
-        custom_ids = []
-        if id_map:
-            custom_ids = list(id_map.keys())
-            try:
-                custom_ids.sort(key=lambda k: int(id_map[k]))
-            except ValueError:
-                pass
-
         if inlined:
-            for i, entry in enumerate(inlined):
-                meta = getattr(entry, "metadata", None) or {}
-                cid = meta.get("custom_id", "") if isinstance(meta, dict) else ""
-                if not cid and i < len(custom_ids):
-                    cid = custom_ids[i]
+            for entry in inlined:
+                meta = _metadata_dict(entry)
+                cid = _custom_id_from_metadata(meta)
                 if not cid:
-                    cid = f"idx-{i}"
+                    raise _missing_metadata_error()
 
                 resp = getattr(entry, "response", None)
                 candidates = getattr(resp, "candidates", None) if resp is not None else None
@@ -110,13 +178,14 @@ class GoogleBatchProvider(BatchProvider):
             data = self.client.files.download(file=file_name)
             text = data.decode("utf-8") if isinstance(data, (bytes, bytearray)) else str(data)
             lines = [line for line in text.splitlines() if line.strip()]
-            for i, line in enumerate(lines):
+            for line in lines:
                 obj = json.loads(line)
-                cid = (obj.get("metadata") or {}).get("custom_id", "")
-                if not cid and i < len(custom_ids):
-                    cid = custom_ids[i]
+                meta = obj.get("metadata") or {}
+                if not isinstance(meta, dict):
+                    meta = {}
+                cid = _custom_id_from_metadata(meta)
                 if not cid:
-                    cid = f"idx-{i}"
+                    raise _missing_metadata_error()
 
                 resp = obj.get("response", {}) or {}
                 candidates = resp.get("candidates", []) or []

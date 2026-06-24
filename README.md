@@ -272,6 +272,9 @@ Your `.venv` was probably created with `uv venv`, which doesn't install `pip` in
 **`which loom` shows `/opt/miniconda3/bin/loom` even after `source .venv/bin/activate`**
 Conda's path is being prepended after the venv. Either reorder your shell init, or just call the venv binary directly: `./.venv/bin/loom <cmd>`.
 
+**Google batch results mapped to the wrong rows**
+Google's batch API can return inlined responses out of submission order (especially for 100+ requests). Loom matches each response using `metadata.custom_id` from the request — not list position. If you see mismatched results from an older Loom version, upgrade (`pip install -U loom-batch`) and re-submit the batch. Requires `google-genai>=1.61.0`, which restores metadata on batch responses.
+
 **Google batch `Invalid batch job name: jqpem7...`**
 The stored `batch_id` is missing the required `batches/` prefix (an older Loom version stripped it). Edit `~/.loom/batches/google_<id>.json`, change `"batch_id": "<id>"` to `"batch_id": "batches/<id>"`, and rename the file to `google_batches_<id>.json` so the on-disk filename and the in-file id stay consistent.
 
