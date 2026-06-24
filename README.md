@@ -1,6 +1,6 @@
 # Loom: LLM Batch Processing Made Easy
 
-> Weave LLM jobs across OpenAI, Anthropic, Google, and OpenRouter — in batch or live.
+Weave LLM jobs across OpenAI, Anthropic, Google, and OpenRouter — in batch or live.
 
 ## 1. Introduction
 
