@@ -42,7 +42,6 @@ It also ships a `loom tokens` command that uses each provider's token-counting A
     - [Caching](#caching)
     - [Token counter](#token-counter)
     - [Where Loom stores state](#where-loom-stores-state)
-    - [Troubleshooting](#troubleshooting)
   - [4. Developer instructions](#4-developer-instructions)
     - [Repository layout](#repository-layout)
     - [Running unit tests](#running-unit-tests)
@@ -264,23 +263,6 @@ For unsupported providers, `loom tokens` prints _"Token counting not available: 
 
 Both directories are safe to delete by hand: cache will rebuild itself; deleting `batches/` orphans any in-flight batch jobs (they still complete on the provider's side, you just lose Loom's view of them).
 
-### Troubleshooting
-
-**`ModuleNotFoundError: No module named 'pandas'` right after `pip install -e ".[dev]"`**
-Your `.venv` was probably created with `uv venv`, which doesn't install `pip` inside. Your `pip install` ran against the system / conda `pip` and dropped the packages elsewhere. Fix with `uv pip install -e ".[dev]"`, or recreate the venv with `python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`.
-
-**`which loom` shows `/opt/miniconda3/bin/loom` even after `source .venv/bin/activate`**
-Conda's path is being prepended after the venv. Either reorder your shell init, or just call the venv binary directly: `./.venv/bin/loom <cmd>`.
-
-**Google batch `Invalid batch job name: jqpem7...`**
-The stored `batch_id` is missing the required `batches/` prefix (an older Loom version stripped it). Edit `~/.loom/batches/google_<id>.json`, change `"batch_id": "<id>"` to `"batch_id": "batches/<id>"`, and rename the file to `google_batches_<id>.json` so the on-disk filename and the in-file id stay consistent.
-
-**`status=unknown` in `loom fetch`**
-The previous fetch attempt raised an exception (bad id, network blip, expired key, or an API response Loom doesn't recognise). Re-running `loom fetch` retries; if it persists, run with the provider's SDK directly to surface the underlying error.
-
-**`Error: OpenRouter has no batch API`**
-OpenRouter doesn't offer batch processing. Re-run with `--sync`.
-
 ## 4. Developer instructions
 
 ### Repository layout
@@ -347,18 +329,6 @@ This runs against live provider APIs. Configure your API keys (e.g. `OPENAI_API_
 - [`.github/workflows/publish.yml`](.github/workflows/publish.yml) — manual release workflow (`workflow_dispatch`). Pick **patch**, **minor**, or **major**, and it bumps `pyproject.toml` + `loom/__init__.py`, runs tests, builds an sdist + wheel, commits and tags the release, creates a GitHub Release, and uploads to PyPI via **OIDC Trusted Publishing** — no PyPI token is stored in repo secrets.
 
 ### Releasing
-
-**One-time PyPI setup:**
-
-1. Create the project on PyPI: https://pypi.org/manage/account/publishing/
-2. Add a **trusted publisher** with:
-   - Owner: `jannehring`
-   - Repository: `loom`
-   - Workflow: `publish.yml`
-   - Environment: `pypi`
-3. In GitHub: **Settings → Environments → New environment → `pypi`**. Enable manual approval here if you want a human in the loop for every release.
-
-**Cutting a release:**
 
 1. Open **Actions → publish → Run workflow** on `main`.
 2. Choose **patch**, **minor**, or **major** (e.g. `0.1.0` → `0.1.1` / `0.2.0` / `1.0.0`).
