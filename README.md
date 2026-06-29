@@ -2,7 +2,7 @@
 
 <img src="https://github.com/jnehring/loom/blob/main/logos/loom-logo-small.png" width="250" style="float:left">
 
-> Weave LLM jobs across OpenAI, Anthropic, Google, and OpenRouter — in batch or live.
+Weave LLM jobs across OpenAI, Anthropic, Google, and OpenRouter — in batch or live.
 
 ## 1. Introduction
 
@@ -268,6 +268,7 @@ For unsupported providers, `loom tokens` prints _"Token counting not available: 
 
 Both directories are safe to delete by hand: cache will rebuild itself; deleting `batches/` orphans any in-flight batch jobs (they still complete on the provider's side, you just lose Loom's view of them).
 
+<<<<<<< HEAD
 ### Troubleshooting
 
 **`ModuleNotFoundError: No module named 'pandas'` right after `pip install -e ".[dev]"`**
@@ -288,6 +289,8 @@ The previous fetch attempt raised an exception (bad id, network blip, expired ke
 **`Error: OpenRouter has no batch API`**
 OpenRouter doesn't offer batch processing. Re-run with `--sync`.
 
+=======
+>>>>>>> 1aa28882f247bac94323b7f6bce01fe5235b6ce7
 ## 4. Developer instructions
 
 ### Repository layout
@@ -354,18 +357,6 @@ This runs against live provider APIs. Configure your API keys (e.g. `OPENAI_API_
 - [`.github/workflows/publish.yml`](.github/workflows/publish.yml) — manual release workflow (`workflow_dispatch`). Pick **patch**, **minor**, or **major**, and it bumps `pyproject.toml` + `loom/__init__.py`, runs tests, builds an sdist + wheel, commits and tags the release, creates a GitHub Release, and uploads to PyPI via **OIDC Trusted Publishing** — no PyPI token is stored in repo secrets.
 
 ### Releasing
-
-**One-time PyPI setup:**
-
-1. Create the project on PyPI: https://pypi.org/manage/account/publishing/
-2. Add a **trusted publisher** with:
-   - Owner: `jannehring`
-   - Repository: `loom`
-   - Workflow: `publish.yml`
-   - Environment: `pypi`
-3. In GitHub: **Settings → Environments → New environment → `pypi`**. Enable manual approval here if you want a human in the loop for every release.
-
-**Cutting a release:**
 
 1. Open **Actions → publish → Run workflow** on `main`.
 2. Choose **patch**, **minor**, or **major** (e.g. `0.1.0` → `0.1.1` / `0.2.0` / `1.0.0`).
