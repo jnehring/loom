@@ -323,8 +323,8 @@ def list_cmd() -> None:
     "tokens",
     help=(
         "Count input tokens for every prompt in a file using the provider's "
-        "token-counting API. Available for Anthropic and Google. OpenAI and "
-        "OpenRouter do not expose a remote token-counting API."
+        "token-counting API. Available for OpenAI, Anthropic, and Google. "
+        "OpenRouter does not expose a remote token-counting API."
     ),
     context_settings={"help_option_names": HELP_OPTIONS},
 )

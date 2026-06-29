@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from .sync_base import SyncProvider
 
 
@@ -22,3 +24,10 @@ class OpenAISyncProvider(SyncProvider):
         if not choices:
             return ""
         return choices[0].message.content or ""
+
+    def count_tokens(self, prompt: str, model: str) -> Optional[int]:
+        resp = self.client.responses.input_tokens.count(
+            model=model,
+            input=prompt,
+        )
+        return int(getattr(resp, "input_tokens", 0) or 0)
