@@ -96,6 +96,8 @@ def test_default_output_path_without_provider_model() -> None:
     assert p.name == "data_results.csv"
     p = converters.default_output_path(Path("/tmp/prompts.json"))
     assert p.name == "prompts_results.json"
+    p = converters.default_output_path(Path("/tmp/data.parquet"))
+    assert p.name == "data_results.parquet"
 
 
 def test_default_output_path_includes_provider_and_model() -> None:
@@ -124,6 +126,7 @@ def test_default_output_path_strips_gz() -> None:
 def test_detect_format_recognises_gz_and_plain() -> None:
     assert converters.detect_format(Path("a.json")) == ("json", False)
     assert converters.detect_format(Path("a.csv")) == ("csv", False)
+    assert converters.detect_format(Path("a.parquet")) == ("parquet", False)
     assert converters.detect_format(Path("a.json.gz")) == ("json", True)
     assert converters.detect_format(Path("a.csv.gz")) == ("csv", True)
     with pytest.raises(ValueError, match="Unsupported file type"):
@@ -199,3 +202,60 @@ def test_merge_json_gz_input_uncompressed_output(tmp_path: Path) -> None:
     # plain JSON readable without gzip
     merged = json.loads(out.read_text())
     assert merged[0]["llm_response"] == "A"
+
+
+def test_load_parquet_assigns_unique_ids(tmp_path: Path) -> None:
+    src = tmp_path / "in.parquet"
+    pd.DataFrame({"id": [1, 2], "text": ["hello", "world"], "extra": ["foo", "bar"]}).to_parquet(
+        src, index=False
+    )
+
+    items, df, id_map = converters.load_parquet(src, "text")
+    assert len(items) == 2
+    assert all(it.custom_id in id_map for it in items)
+    assert sorted(id_map.values()) == ["0", "1"]
+    assert list(df.columns) == ["id", "text", "extra"]
+
+
+def test_load_parquet_missing_column_raises(tmp_path: Path) -> None:
+    src = tmp_path / "in.parquet"
+    pd.DataFrame({"id": [1], "text": ["hello"]}).to_parquet(src, index=False)
+    with pytest.raises(ValueError, match="not found"):
+        converters.load_parquet(src, "nope")
+
+
+def test_merge_parquet_appends_response_column_and_preserves_rows(tmp_path: Path) -> None:
+    src = tmp_path / "in.parquet"
+    pd.DataFrame(
+        {"id": [10, 20], "text": ["hello", "world"], "extra": ["foo", "bar"]}
+    ).to_parquet(src, index=False)
+
+    items, _df, id_map = converters.load_parquet(src, "text")
+    cid_for_row0 = next(cid for cid, idx in id_map.items() if idx == "0")
+    cid_for_row1 = next(cid for cid, idx in id_map.items() if idx == "1")
+    responses = {cid_for_row1: "WORLD!", cid_for_row0: "HELLO!"}
+
+    out = tmp_path / "out.parquet"
+    converters.merge_parquet(src, id_map, responses, out)
+
+    result = pd.read_parquet(out)
+    assert list(result.columns) == ["id", "text", "extra", "llm_response"]
+    assert result.iloc[0]["llm_response"] == "HELLO!"
+    assert result.iloc[1]["llm_response"] == "WORLD!"
+    assert result.iloc[0]["extra"] == "foo"
+
+
+def test_merge_parquet_with_meta(tmp_path: Path) -> None:
+    src = tmp_path / "in.parquet"
+    pd.DataFrame({"id": [1], "text": ["hello"]}).to_parquet(src, index=False)
+    items, _df, id_map = converters.load_parquet(src, "text")
+    cid = next(iter(id_map))
+    out = tmp_path / "out.parquet"
+    converters.merge_parquet(
+        src, id_map, {cid: "HELLO!"}, out,
+        with_meta=True, provider="openai", model="gpt-4o-mini",
+    )
+    result = pd.read_parquet(out)
+    assert list(result.columns) == ["id", "text", "llm_response", "llm_provider", "llm_model"]
+    assert result.iloc[0]["llm_provider"] == "openai"
+    assert result.iloc[0]["llm_model"] == "gpt-4o-mini"

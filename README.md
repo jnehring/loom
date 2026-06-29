@@ -1,10 +1,12 @@
 # Loom: LLM Batch Processing Made Easy
 
+<img src="https://github.com/jnehring/loom/blob/main/logos/loom-logo-small.png" width="250" style="float:left">
+
 > Weave LLM jobs across OpenAI, Anthropic, Google, and OpenRouter — in batch or live.
 
 ## 1. Introduction
 
-Loom is a small Python CLI for running a dataset of prompts (JSON or CSV) through an LLM and merging the responses back into the original file. It speaks two modes:
+Loom is a small Python CLI for running a dataset of prompts (JSON, CSV, or Parquet) through an LLM and merging the responses back into the original file. It speaks two modes:
 
 - **Batch** (`loom run`, default): submits the dataset to the provider's batch API, persists the batch id locally, and later you call `loom fetch` to download and merge results. Cheap (50% off on OpenAI / Anthropic) but asynchronous — can take up to 24 hours.
 - **Sequential** (`loom run --sync`): calls the chat-completion endpoint per prompt with a concurrent worker pool, writes the output file immediately, and uses an on-disk response cache.
@@ -74,7 +76,7 @@ pip install -e ".[dev]"
 
 ### Preparing the data
 
-Loom accepts two input formats — plain or **gzip-compressed** (`.json.gz`, `.csv.gz`). Compressed inputs are decompressed transparently; outputs are always written uncompressed (`.json` / `.csv`).
+Loom accepts three input formats — plain or **gzip-compressed** (`.json.gz`, `.csv.gz`). Compressed inputs are decompressed transparently; JSON and CSV outputs are always written uncompressed (`.json` / `.csv`). Parquet inputs produce `.parquet` output.
 
 **JSON** — a list of `{id, prompt}` objects. The `id` is reused as the row key in the merged output.
 
@@ -85,13 +87,15 @@ Loom accepts two input formats — plain or **gzip-compressed** (`.json.gz`, `.c
 ]
 ```
 
-**CSV** — any schema; you tell Loom which column holds the prompt with `--col`. All original columns are preserved; a new `llm_response` column is appended.
+**CSV** — any schema; Loom reads the prompt from the `text` column by default (override with `--col`). All original columns are preserved; a new `llm_response` column is appended.
 
 ```csv
 id,text,priority
 1,"Explain quantum physics in one paragraph",low
 2,"Write a haiku about rust",high
 ```
+
+**Parquet** — same semantics as CSV: reads the `text` column by default (override with `--col`). All original columns are preserved; `llm_response` is appended. Output is written as `.parquet`.
 
 ### Submit a batch request
 
@@ -121,17 +125,17 @@ Submit a dataset as a batch job (default) or run it synchronously with `--sync`.
 
 | Flag                 | Default                                    | Description                                                                                                            |
 | -------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `--file`, `-f`       | _required_                                 | Input `.json`, `.csv`, `.json.gz`, or `.csv.gz`.                                                                       |
+| `--file`, `-f`       | _required_                                 | Input `.json`, `.csv`, `.parquet`, `.json.gz`, or `.csv.gz`.                                                           |
 | `--provider`, `-p`   | _required_                                 | `openai`, `anthropic`, `google`, or `openrouter`.                                                                      |
 | `--model`, `-m`      | _required_                                 | Provider-specific model id (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-latest`, `gemini-2.0-flash`, `openai/gpt-4o-mini`). |
-| `--col`, `-c`        | —                                          | Prompt column name (required for CSV).                                                                                 |
+| `--col`, `-c`        | `text`                                     | Prompt column name (CSV and Parquet).                                                                                  |
 | `--api-key`          | env / `.env`                               | Override the resolved API key for this run.                                                                            |
 | `--output`, `-o`     | `<input>_results_<provider>_<model>.<ext>` | Custom output file path.                                                                                               |
 | `--sync` / `--batch` | `--batch`                                  | `--sync` calls the provider per prompt and writes the output immediately. `--batch` uses the provider's batch API.     |
 | `--workers`, `-w`    | `8`                                        | Concurrent workers in `--sync` mode.                                                                                   |
 | `--no-cache`         | off                                        | Disable the on-disk response cache (`--sync` only).                                                                    |
 | `--force`            | off                                        | Overwrite an existing output file without prompting (`--sync` only).                                                   |
-| `--with-meta`        | off                                        | Add `llm_provider` and `llm_model` columns (CSV) or fields (JSON) to the output, alongside `llm_response`.             |
+| `--with-meta`        | off                                        | Add `llm_provider` and `llm_model` columns (CSV/Parquet) or fields (JSON) to the output, alongside `llm_response`.     |
 
 OpenRouter has no batch API; using `--provider openrouter` without `--sync` exits with a helpful error.
 
@@ -171,10 +175,10 @@ Count input tokens for every prompt using the provider's token-counting API. See
 
 | Flag               | Default      | Description                                       |
 | ------------------ | ------------ | ------------------------------------------------- |
-| `--file`, `-f`     | _required_   | Input `.json`, `.csv`, `.json.gz`, or `.csv.gz`.  |
+| `--file`, `-f`     | _required_   | Input `.json`, `.csv`, `.parquet`, `.json.gz`, or `.csv.gz`. |
 | `--provider`, `-p` | _required_   | `openai`, `anthropic`, `google`, or `openrouter`. |
 | `--model`, `-m`    | _required_   | Provider-specific model id.                       |
-| `--col`, `-c`      | —            | Prompt column name (required for CSV).            |
+| `--col`, `-c`      | `text`       | Prompt column name (CSV and Parquet). |
 | `--api-key`        | env / `.env` | Override the resolved API key.                    |
 | `--workers`, `-w`  | `8`          | Concurrent workers.                               |
 
@@ -304,7 +308,7 @@ loom/
     openai_sync.py, anthropic_sync.py,
     google_sync.py, openrouter_sync.py   # Sync implementations
   utils/
-    converters.py               # Load / merge JSON & CSV
+    converters.py               # Load / merge JSON, CSV & Parquet
     storage.py                  # ~/.loom/batches/ persistence
     cache.py                    # ~/.loom/cache/ response cache
     keys.py                     # API-key resolution

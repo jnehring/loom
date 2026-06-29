@@ -8,7 +8,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
-FileType = Literal["json", "csv"]
+FileType = Literal["json", "csv", "parquet"]
 ProviderName = Literal["openai", "anthropic", "google", "openrouter"]
 BatchStatus = Literal[
     "validating", "in_progress", "completed", "failed", "expired", "cancelled", "unknown"
@@ -31,7 +31,7 @@ class BatchMetadata(BaseModel):
     original_file_path: str
     file_type: FileType
     prompt_column: Optional[str] = None
-    # custom_id -> original row index (CSV) or original "id" field (JSON)
+    # custom_id -> original row index (CSV/Parquet) or original "id" field (JSON)
     id_map: dict[str, str] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: BatchStatus = "validating"

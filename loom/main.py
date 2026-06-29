@@ -56,17 +56,17 @@ class Provider(str, Enum):
 @app.command(
     "run",
     help=(
-        "Run prompts from a JSON or CSV file. Default: submit as a provider batch job "
+        "Run prompts from a JSON, CSV, or Parquet file. Default: submit as a provider batch job "
         "(cheap, async — fetch later). Use --sync to call the provider synchronously "
         "and write results immediately (no fetch step). OpenRouter only supports --sync."
     ),
     context_settings={"help_option_names": HELP_OPTIONS},
 )
 def run_cmd(
-    file: Path = typer.Option(..., "--file", "-f", exists=True, help="Input .json or .csv file."),
+    file: Path = typer.Option(..., "--file", "-f", exists=True, help="Input .json, .csv, or .parquet file."),
     provider: Provider = typer.Option(..., "--provider", "-p", help="LLM provider."),
     model: str = typer.Option(..., "--model", "-m", help="Model identifier (provider-specific)."),
-    col: Optional[str] = typer.Option(None, "--col", "-c", help="Prompt column name (required for CSV)."),
+    col: str = typer.Option("text", "--col", "-c", help="Prompt column name for CSV and Parquet (default: text)."),
     api_key: Optional[str] = typer.Option(None, "--api-key", help="Override env API key."),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file path."),
     sync: bool = typer.Option(
@@ -133,7 +133,7 @@ def _run_sync(
     file: Path,
     provider: Provider,
     model: str,
-    col: Optional[str],
+    col: str,
     api_key: Optional[str],
     output: Optional[Path],
     workers: int,
@@ -329,10 +329,10 @@ def list_cmd() -> None:
     context_settings={"help_option_names": HELP_OPTIONS},
 )
 def tokens_cmd(
-    file: Path = typer.Option(..., "--file", "-f", exists=True, help="Input .json or .csv file."),
+    file: Path = typer.Option(..., "--file", "-f", exists=True, help="Input .json, .csv, or .parquet file."),
     provider: Provider = typer.Option(..., "--provider", "-p", help="LLM provider."),
     model: str = typer.Option(..., "--model", "-m", help="Model identifier (provider-specific)."),
-    col: Optional[str] = typer.Option(None, "--col", "-c", help="Prompt column name (required for CSV)."),
+    col: str = typer.Option("text", "--col", "-c", help="Prompt column name for CSV and Parquet (default: text)."),
     api_key: Optional[str] = typer.Option(None, "--api-key", help="Override env API key."),
     workers: int = typer.Option(8, "--workers", "-w", min=1, help="Concurrent workers."),
 ) -> None:

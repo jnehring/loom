@@ -1,8 +1,8 @@
-"""Load JSON/CSV inputs and merge LLM responses back into the original format.
+"""Load JSON/CSV/Parquet inputs and merge LLM responses back into the original format.
 
-Accepts plain ``.json`` / ``.csv`` files as well as their gzip-compressed
-variants ``.json.gz`` / ``.csv.gz``. Output files are always written
-uncompressed.
+Accepts plain ``.json`` / ``.csv`` / ``.parquet`` files as well as gzip-compressed
+``.json.gz`` / ``.csv.gz`` variants. Output files are always written uncompressed
+(``.json`` / ``.csv``) or as plain ``.parquet`` (Parquet files use internal compression).
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import json
 import re
 import uuid
 from pathlib import Path
-from typing import IO, Tuple
+from typing import IO
 
 import pandas as pd
 
@@ -21,14 +21,14 @@ from ..core.models import PromptItem
 
 # ---------- Input format detection ----------
 
-_INPUT_EXTS = {".json", ".csv", ".json.gz", ".csv.gz"}
+_INPUT_EXTS = {".json", ".csv", ".parquet", ".json.gz", ".csv.gz"}
 
 
 def detect_format(path: Path) -> tuple[str, bool]:
     """Return ``(format, is_gzipped)`` for ``path``.
 
-    ``format`` is one of ``"json"`` or ``"csv"``. Raises ``ValueError`` if the
-    file extension is not recognised.
+    ``format`` is one of ``"json"``, ``"csv"``, or ``"parquet"``. Raises
+    ``ValueError`` if the file extension is not recognised.
     """
     name = path.name.lower()
     if name.endswith(".json.gz"):
@@ -39,6 +39,8 @@ def detect_format(path: Path) -> tuple[str, bool]:
         return "json", False
     if name.endswith(".csv"):
         return "csv", False
+    if name.endswith(".parquet"):
+        return "parquet", False
     raise ValueError(
         f"Unsupported file type: {path.name}. "
         f"Use one of: {sorted(_INPUT_EXTS)}."
@@ -50,6 +52,42 @@ def _open_text(path: Path) -> IO[str]:
     if path.name.lower().endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8")
     return open(path, "r", encoding="utf-8")
+
+
+# ---------- Tabular helpers (CSV / Parquet) ----------
+
+def _load_tabular(df: pd.DataFrame, col: str, path: Path) -> tuple[list[PromptItem], dict[str, str]]:
+    if col not in df.columns:
+        raise ValueError(
+            f"Column '{col}' not found in {path}. Available: {list(df.columns)}"
+        )
+    items: list[PromptItem] = []
+    id_map: dict[str, str] = {}
+    for idx, value in df[col].items():
+        cid = f"row-{idx}-{uuid.uuid4().hex[:8]}"
+        items.append(PromptItem(custom_id=cid, prompt=str(value)))
+        id_map[cid] = str(idx)
+    return items, id_map
+
+
+def _merge_tabular(
+    df: pd.DataFrame,
+    id_map: dict[str, str],
+    responses: dict[str, str],
+    *,
+    with_meta: bool = False,
+    provider: str | None = None,
+    model: str | None = None,
+) -> pd.DataFrame:
+    row_to_resp: dict[int, str] = {}
+    for cid, row_idx_str in id_map.items():
+        row_to_resp[int(row_idx_str)] = responses.get(cid, "")
+    df = df.copy()
+    df["llm_response"] = df.index.map(lambda i: row_to_resp.get(i, ""))
+    if with_meta:
+        df["llm_provider"] = provider
+        df["llm_model"] = model
+    return df
 
 
 # ---------- Loaders ----------
@@ -86,16 +124,17 @@ def load_csv(path: Path, col: str) -> tuple[list[PromptItem], pd.DataFrame, dict
     """
     # pandas auto-detects gzip from the .gz suffix.
     df = pd.read_csv(path)
-    if col not in df.columns:
-        raise ValueError(
-            f"Column '{col}' not found in {path}. Available: {list(df.columns)}"
-        )
-    items: list[PromptItem] = []
-    id_map: dict[str, str] = {}
-    for idx, value in df[col].items():
-        cid = f"row-{idx}-{uuid.uuid4().hex[:8]}"
-        items.append(PromptItem(custom_id=cid, prompt=str(value)))
-        id_map[cid] = str(idx)
+    items, id_map = _load_tabular(df, col, path)
+    return items, df, id_map
+
+
+def load_parquet(path: Path, col: str) -> tuple[list[PromptItem], pd.DataFrame, dict[str, str]]:
+    """Load a Parquet file; assign a UUID per row as custom_id.
+
+    Returns (prompt_items, dataframe, id_map) where id_map maps custom_id -> str(row_index).
+    """
+    df = pd.read_parquet(path)
+    items, id_map = _load_tabular(df, col, path)
     return items, df, id_map
 
 
@@ -141,15 +180,34 @@ def merge_csv(
     If ``with_meta`` is True, also add ``llm_provider`` and ``llm_model`` columns.
     """
     df = pd.read_csv(original_path)
-    # Build per-row response by inverting id_map (row_index -> custom_id).
-    row_to_resp: dict[int, str] = {}
-    for cid, row_idx_str in id_map.items():
-        row_to_resp[int(row_idx_str)] = responses.get(cid, "")
-    df["llm_response"] = df.index.map(lambda i: row_to_resp.get(i, ""))
-    if with_meta:
-        df["llm_provider"] = provider
-        df["llm_model"] = model
+    df = _merge_tabular(
+        df, id_map, responses,
+        with_meta=with_meta, provider=provider, model=model,
+    )
     df.to_csv(output_path, index=False)
+    return output_path
+
+
+def merge_parquet(
+    original_path: Path,
+    id_map: dict[str, str],
+    responses: dict[str, str],
+    output_path: Path,
+    *,
+    with_meta: bool = False,
+    provider: str | None = None,
+    model: str | None = None,
+) -> Path:
+    """Add llm_response column to a Parquet file, preserving original row order.
+
+    If ``with_meta`` is True, also add ``llm_provider`` and ``llm_model`` columns.
+    """
+    df = pd.read_parquet(original_path)
+    df = _merge_tabular(
+        df, id_map, responses,
+        with_meta=with_meta, provider=provider, model=model,
+    )
+    df.to_parquet(output_path, index=False)
     return output_path
 
 
@@ -170,12 +228,15 @@ def default_output_path(
 ) -> Path:
     """Compute the default output file path.
 
-    The output is always uncompressed (``.json`` or ``.csv``); any ``.gz``
-    suffix on the input is stripped. ``provider`` and ``model`` are appended
-    to the stem when supplied, e.g.::
+    The output is always uncompressed (``.json`` or ``.csv``) or plain ``.parquet``;
+    any ``.gz`` suffix on the input is stripped. ``provider`` and ``model`` are
+    appended to the stem when supplied, e.g.::
 
         data.csv, provider=openai, model=gpt-4o-mini
             -> data_results_openai_gpt-4o-mini.csv
+
+        data.parquet, provider=openai, model=gpt-4o-mini
+            -> data_results_openai_gpt-4o-mini.parquet
 
         data.json.gz, provider=openrouter, model=openai/gpt-4o-mini
             -> data_results_openrouter_openai_gpt-4o-mini.json

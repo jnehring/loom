@@ -28,6 +28,7 @@ dependencies = [
     "typer>=0.12",
     "pydantic>=2",
     "pandas>=2",
+    "pyarrow>=14",
     "python-dotenv>=1",
     "openai>=1.40",
     "anthropic>=0.34",
