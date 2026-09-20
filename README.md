@@ -6,12 +6,12 @@ Weave LLM jobs across OpenAI, Anthropic, Google, and OpenRouter — in batch or 
 
 ## 1. Introduction
 
-Loom is a small Python CLI for running a dataset of prompts (JSON, CSV, or Parquet) through an LLM and merging the responses back into the original file. It speaks two modes:
+Loom is a small Python CLI **and library** for running a dataset of prompts (JSON, CSV, or Parquet) through an LLM and merging the responses back into the original file. It speaks two modes:
 
-- **Batch** (`loom run`, default): submits the dataset to the provider's batch API, persists the batch id locally, and later you call `loom fetch` to download and merge results. Cheap (50% off on OpenAI / Anthropic) but asynchronous — can take up to 24 hours.
+- **Batch** (`loom run`, default): submits the dataset to the provider's batch API, persists the batch id locally, and later you call `loom fetch` to download and merge results. Cheap (50% off on OpenAI / Anthropic) but asynchronous — can take up to 24 hours. Uses the same on-disk response cache as sync (skips cached prompts at submit, writes downloads into the cache on fetch).
 - **Sequential** (`loom run --sync`): calls the chat-completion endpoint per prompt with a concurrent worker pool, writes the output file immediately, and uses an on-disk response cache.
 
-It also ships a `loom tokens` command that uses each provider's token-counting API where available.
+It also ships a `loom tokens` command that uses each provider's token-counting API where available, and a [`Loom`](docs/api.md) Python client for in-memory and file-based use without the CLI.
 
 ### Supported providers
 
@@ -32,6 +32,7 @@ It also ships a `loom tokens` command that uses each provider's token-counting A
     - [Installation](#installation)
     - [Preparing the data](#preparing-the-data)
     - [Submit a batch request](#submit-a-batch-request)
+    - [Python library](#python-library)
   - [3. Usage](#3-usage)
     - [Command-line reference](#command-line-reference)
       - [`loom run`](#loom-run)
@@ -114,6 +115,28 @@ loom fetch              # --all is the default; fetches every pending batch
 
 The output is written next to the input as `<name>_results_<provider>_<model>.<ext>`. Forward slashes and other unsafe characters in the model id are replaced with underscores (e.g. `openai/gpt-4o-mini` → `openai_gpt-4o-mini`). For gzipped inputs the `.gz` is dropped — `data.csv.gz` → `data_results_<provider>_<model>.csv`. Override the path entirely with `--output`.
 
+### Python library
+
+```python
+from loom import Loom
+
+client = Loom("openai", "gpt-4o-mini", cache_dir="/tmp/loom-cache")
+
+# In-memory
+print(client.generate("Say hello"))
+result = client.generate_many(["a", "b", "c"])
+print(result.texts, result.cache_hits)
+
+# File-based sync
+run = client.run_file("prompts.json", force=True)
+
+# Batch
+job = client.submit_file("prompts.csv", column="text")
+fetch = job.fetch()  # later
+```
+
+Full reference: **[docs/api.md](docs/api.md)**.
+
 ## 3. Usage
 
 ### Command-line reference
@@ -132,8 +155,9 @@ Submit a dataset as a batch job (default) or run it synchronously with `--sync`.
 | `--output`, `-o`     | `<input>_results_<provider>_<model>.<ext>` | Custom output file path.                                                                                               |
 | `--sync` / `--batch` | `--batch`                                  | `--sync` calls the provider per prompt and writes the output immediately. `--batch` uses the provider's batch API.     |
 | `--workers`, `-w`    | `8`                                        | Concurrent workers in `--sync` mode.                                                                                   |
-| `--no-cache`         | off                                        | Disable the on-disk response cache (`--sync` only).                                                                    |
-| `--force`            | off                                        | Overwrite an existing output file without prompting (`--sync` only).                                                   |
+| `--no-cache`         | off                                        | Disable the on-disk response cache (both `--sync` and `--batch`).                                                          |
+| `--cache-dir`        | `$LOOM_CACHE_DIR` / `~/.loom/cache`        | Override the response-cache directory.                                                                                     |
+| `--force`            | off                                        | Overwrite an existing output file without prompting.                                                                       |
 | `--with-meta`        | off                                        | Add `llm_provider` and `llm_model` columns (CSV/Parquet) or fields (JSON) to the output, alongside `llm_response`.     |
 
 OpenRouter has no batch API; using `--provider openrouter` without `--sync` exits with a helpful error.
@@ -183,11 +207,12 @@ Count input tokens for every prompt using the provider's token-counting API. See
 
 #### `loom cache clear`
 
-Delete every cached response under `~/.loom/cache/`. See [Caching](#caching).
+Delete every cached response under the cache directory (default `~/.loom/cache/`). See [Caching](#caching).
 
 | Flag          | Default | Description                   |
 | ------------- | ------- | ----------------------------- |
 | `--yes`, `-y` | off     | Skip the confirmation prompt. |
+| `--cache-dir` | default | Override the cache directory. |
 
 ### Batch vs sequential
 
@@ -196,7 +221,7 @@ Delete every cached response under `~/.loom/cache/`. See [Caching](#caching).
 | Latency                     | Up to 24h                   | Real-time                      |
 | Pricing (OpenAI, Anthropic) | 50% off                     | Standard                       |
 | Steps                       | `run` → wait → `fetch`      | Single command                 |
-| Cache                       | n/a                         | On-disk, on by default         |
+| Cache                       | On-disk (skip at submit, write on fetch) | On-disk, on by default |
 | OpenRouter                  | ✗                           | ✓ (only mode)                  |
 | State on disk               | `~/.loom/batches/`          | None (cache only)              |
 
@@ -219,16 +244,27 @@ A `.env` in the working directory is the friction-free option for daily use; `--
 
 ### Caching
 
-In `--sync` mode, Loom caches every response under `~/.loom/cache/`. The cache key is `sha256("<provider>|<model>|<prompt>")`, so changing any of those misses the cache. There is no TTL or eviction — the cache grows monotonically until you clear it.
+Loom caches every response under `~/.loom/cache/` (override with `--cache-dir`, `$LOOM_CACHE_DIR`, or `$LOOM_HOME`). The cache key is `sha256("<provider>|<model>|<prompt>")`, so changing any of those misses the cache. There is no TTL or eviction — the cache grows monotonically until you clear it.
+
+**Sync mode** reads the cache before calling the provider and writes every successful response.
+
+**Batch mode** also uses the cache:
+
+- at submit time, cached prompts are skipped (only misses go to the provider);
+- if *every* prompt is cached, Loom writes the output immediately and skips the provider entirely;
+- at fetch time, newly downloaded responses are written into the cache.
 
 ```bash
 loom run --sync -p openai -m gpt-4o-mini -f data.csv -c text   # first run: API calls
 loom run --sync -p openai -m gpt-4o-mini -f data.csv -c text   # second run: 100% cache hits
-loom run --sync -p openai -m gpt-4o-mini -f data.csv -c text --no-cache  # bypass
-loom cache clear                                                # wipe ~/.loom/cache/
+loom run -p openai -m gpt-4o-mini -f data.csv -c text          # batch: skips cached prompts
+loom run --sync -p openai -m gpt-4o-mini -f data.csv --no-cache
+loom run --sync -p openai -m gpt-4o-mini -f data.csv --cache-dir /tmp/my-cache
+loom cache clear                                                # wipe the cache directory
+loom cache clear --cache-dir /tmp/my-cache
 ```
 
-`loom run --sync` reports cache hits live in its progress bar.
+`loom run --sync` reports cache hits live in its progress bar. From Python, pass `cache_dir=` to [`Loom`](docs/api.md#cache-configuration).
 
 ### Token counter
 
@@ -257,15 +293,17 @@ For unsupported providers, `loom tokens` prints _"Token counting not available: 
 ### Where Loom stores state
 
 ```
-~/.loom/
-├── batches/        # one <provider>_<batch_id>.json per pending or kept batch
-└── cache/          # one <sha256>.json per cached --sync response
+~/.loom/                    # or $LOOM_HOME
+├── batches/                # one <provider>_<batch_id>.json per pending or kept batch
+├── cache/                  # one <sha256>.json per cached response ($LOOM_CACHE_DIR overrides)
+└── inputs/                 # prompt snapshots for in-memory batch submits (library API)
 ```
 
-- `~/.loom/batches/<provider>_<safe_id>.json` is created by `loom run` (batch mode) and contains `batch_id`, `provider`, `model`, `original_file_path`, `file_type`, the prompt column, an `id_map` mapping internal `custom_id` → original row id, `created_at`, and the last-seen `status`. `loom fetch` updates `status`, downloads results, and (unless `--keep` is passed) deletes the file on success.
-- `~/.loom/cache/<sha256>.json` is the response cache used by `--sync`. Each file holds `{provider, model, response, created_at}`.
+- `~/.loom/batches/<provider>_<safe_id>.json` is created by `loom run` (batch mode) and contains `batch_id`, `provider`, `model`, `original_file_path`, `file_type`, the prompt column, an `id_map` mapping internal `custom_id` → original row id, `created_at`, the last-seen `status`, plus any responses already served from cache at submit time. `loom fetch` updates `status`, downloads results, writes them into the cache, and (unless `--keep` is passed) deletes the file on success.
+- `~/.loom/cache/<sha256>.json` is the response cache used by both `--sync` and batch. Each file holds `{provider, model, response, created_at}`.
+- `~/.loom/inputs/` holds temporary JSON snapshots for batches submitted via the Python `Loom.submit(...)` API.
 
-Both directories are safe to delete by hand: cache will rebuild itself; deleting `batches/` orphans any in-flight batch jobs (they still complete on the provider's side, you just lose Loom's view of them).
+Both `batches/` and `cache/` are safe to delete by hand: cache will rebuild itself; deleting `batches/` orphans any in-flight batch jobs (they still complete on the provider's side, you just lose Loom's view of them).
 
 ## 4. Developer instructions
 
@@ -273,9 +311,11 @@ Both directories are safe to delete by hand: cache will rebuild itself; deleting
 
 ```
 loom/
+  __init__.py                   # Public exports (Loom, result types, …)
+  api.py                        # Loom client (library API)
   main.py                       # CLI entry point (Typer commands)
   core/
-    orchestrator.py             # run_batch, fetch_batch, generate_sync, count_tokens
+    orchestrator.py             # run_batch, fetch_batch, generate_sync, count_tokens, generate_items
     models.py                   # Pydantic models, ProviderName, BatchStatus
   eval/
     eval_providers.py           # Provider evaluation script (init / fetch)
@@ -289,8 +329,11 @@ loom/
   utils/
     converters.py               # Load / merge JSON, CSV & Parquet
     storage.py                  # ~/.loom/batches/ persistence
-    cache.py                    # ~/.loom/cache/ response cache
+    cache.py                    # ResponseCache (configurable directory)
+    paths.py                    # LOOM_HOME / LOOM_CACHE_DIR resolution
     keys.py                     # API-key resolution
+docs/
+  api.md                        # Python library API reference
 tests/                          # pytest suite
 .github/workflows/              # CI: test.yml, publish.yml
 pyproject.toml                  # Dependencies and package metadata

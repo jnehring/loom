@@ -78,10 +78,19 @@ def run_cmd(
         8, "--workers", "-w", min=1, help="Concurrent workers for --sync mode."
     ),
     no_cache: bool = typer.Option(
-        False, "--no-cache", help="Disable the on-disk response cache (only meaningful with --sync)."
+        False,
+        "--no-cache",
+        help="Disable the on-disk response cache (applies to both --sync and --batch).",
+    ),
+    cache_dir: Optional[Path] = typer.Option(
+        None,
+        "--cache-dir",
+        help="Override the response-cache directory (default: $LOOM_CACHE_DIR or ~/.loom/cache).",
     ),
     force: bool = typer.Option(
-        False, "--force", help="Overwrite an existing output file without prompting (only meaningful with --sync)."
+        False,
+        "--force",
+        help="Overwrite an existing output file without prompting.",
     ),
     with_meta: bool = typer.Option(
         False,
@@ -105,6 +114,7 @@ def run_cmd(
             output=output,
             workers=workers,
             use_cache=not no_cache,
+            cache_dir=cache_dir,
             force=force,
             with_meta=with_meta,
         )
@@ -120,13 +130,54 @@ def run_cmd(
             api_key=api_key,
             output_path=output,
             with_meta=with_meta,
+            use_cache=not no_cache,
+            cache_dir=cache_dir,
+            force=force,
         )
+    except orchestrator.OutputExistsError as exc:
+        console.print(
+            f"[yellow]Warning:[/yellow] output file [bold]{exc.out_path}[/bold] already exists."
+        )
+        if not typer.confirm("Overwrite?", default=False):
+            console.print("[dim]Aborted. Re-run with --force to overwrite.[/dim]")
+            raise typer.Exit(code=0)
+        try:
+            meta = orchestrator.run_batch(
+                file_path=file,
+                provider_name=provider.value,
+                model=model,
+                column=col,
+                api_key=api_key,
+                output_path=output,
+                with_meta=with_meta,
+                use_cache=not no_cache,
+                cache_dir=cache_dir,
+                force=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
     except Exception as e:  # noqa: BLE001
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
-    console.print(f"[green]Batch submitted.[/green] id=[bold]{meta.batch_id}[/bold] provider={meta.provider}")
-    console.print(f"Metadata saved to ~/.loom/batches/. Run [bold]loom fetch --id {meta.batch_id}[/bold] later.")
+    if meta.batch_id.startswith("local-"):
+        n = len(meta.cached_responses)
+        console.print(
+            f"[green]All {n} prompt{'s' if n != 1 else ''} served from cache[/green] "
+            f"— wrote [bold]{meta.output_path}[/bold]"
+        )
+        return
+
+    n_cached = len(meta.cached_responses)
+    cache_note = f" ({n_cached} from cache)" if n_cached else ""
+    console.print(
+        f"[green]Batch submitted.[/green] id=[bold]{meta.batch_id}[/bold] "
+        f"provider={meta.provider}{cache_note}"
+    )
+    console.print(
+        f"Metadata saved to ~/.loom/batches/. Run [bold]loom fetch --id {meta.batch_id}[/bold] later."
+    )
 
 
 def _run_sync(
@@ -140,6 +191,7 @@ def _run_sync(
     use_cache: bool,
     force: bool,
     with_meta: bool,
+    cache_dir: Optional[Path] = None,
 ) -> None:
     console.print(
         f"[bold cyan]Weaving live...[/bold cyan] provider={provider.value} model={model} "
@@ -172,6 +224,7 @@ def _run_sync(
                 use_cache=use_cache,
                 force=force,
                 with_meta=with_meta,
+                cache_dir=cache_dir,
                 on_progress=_on_progress,
             )
     except orchestrator.SyncOutputExistsError as exc:
@@ -192,6 +245,7 @@ def _run_sync(
             use_cache=use_cache,
             force=True,
             with_meta=with_meta,
+            cache_dir=cache_dir,
         )
     except Exception as e:  # noqa: BLE001
         console.print(f"[red]Error:[/red] {e}")
@@ -273,7 +327,7 @@ def fetch_cmd(
         "unknown": "Last fetch attempt raised an error (e.g. invalid id, auth, or network); re-run to retry.",
     }
 
-    for meta, done, prompt_errors in targets:
+    for meta, done, prompt_errors, _responses in targets:
         if done:
             suffix = "" if keep else " [dim](metadata removed)[/dim]"
             console.print(
@@ -394,7 +448,7 @@ def tokens_cmd(
 
 cache_app = typer.Typer(
     name="cache",
-    help="Manage the on-disk response cache used by 'loom run --sync'.",
+    help="Manage the on-disk response cache used by 'loom run' (sync and batch).",
     context_settings={"help_option_names": HELP_OPTIONS},
     no_args_is_help=True,
     add_completion=False,
@@ -404,27 +458,33 @@ app.add_typer(cache_app, name="cache")
 
 @cache_app.command(
     "clear",
-    help="Delete every cached response under ~/.loom/cache/.",
+    help="Delete every cached response under the cache directory.",
     context_settings={"help_option_names": HELP_OPTIONS},
 )
 def cache_clear_cmd(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
+    cache_dir: Optional[Path] = typer.Option(
+        None,
+        "--cache-dir",
+        help="Override the response-cache directory (default: $LOOM_CACHE_DIR or ~/.loom/cache).",
+    ),
 ) -> None:
-    cache_dir = response_cache.CACHE_DIR
-    if not cache_dir.exists():
+    cache = response_cache.get_cache(cache_dir=cache_dir)
+    target = cache.dir
+    if not target.exists():
         console.print("[dim]No cache directory exists yet — nothing to clear.[/dim]")
         return
-    count = sum(1 for _ in cache_dir.glob("*.json"))
+    count = cache.count()
     if count == 0:
         console.print("[dim]Cache is already empty.[/dim]")
         return
     if not yes and not typer.confirm(
-        f"Delete {count} cached response{'s' if count != 1 else ''} from {cache_dir}?",
+        f"Delete {count} cached response{'s' if count != 1 else ''} from {target}?",
         default=False,
     ):
         console.print("[dim]Aborted.[/dim]")
         raise typer.Exit(code=0)
-    n = response_cache.clear()
+    n = cache.clear()
     console.print(f"[green]Cache cleared.[/green] Removed {n} file{'s' if n != 1 else ''}.")
 
 

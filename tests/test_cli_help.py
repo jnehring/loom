@@ -28,3 +28,16 @@ def test_no_args_prints_help() -> None:
     result = runner.invoke(app, [])
     # no_args_is_help=True returns exit code 2 in Click/Typer
     assert "Usage" in result.stdout or "Usage" in (result.stderr or "")
+
+
+def test_run_help_mentions_cache_dir() -> None:
+    result = runner.invoke(app, ["run", "-h"])
+    assert result.exit_code == 0
+    assert "--cache-dir" in result.stdout
+    assert "--no-cache" in result.stdout
+
+
+def test_cache_clear_help_mentions_cache_dir() -> None:
+    result = runner.invoke(app, ["cache", "clear", "-h"])
+    assert result.exit_code == 0
+    assert "--cache-dir" in result.stdout

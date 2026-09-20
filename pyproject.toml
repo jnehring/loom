@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Jan Nehring" }]
-keywords = ["llm", "batch", "openai", "anthropic", "gemini", "cli"]
+keywords = ["llm", "batch", "openai", "anthropic", "gemini", "cli", "library"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -22,6 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Utilities",
 ]
 dependencies = [

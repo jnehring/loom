@@ -4,14 +4,22 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, Union
 
 from ..core.models import BatchMetadata
+from .paths import default_batches_dir, default_inputs_dir
 
-STORAGE_DIR = Path.home() / ".loom" / "batches"
+PathLike = Union[str, Path]
+
+# Module-level directory, rebindable in tests via monkeypatch.
+STORAGE_DIR = default_batches_dir()
+INPUTS_DIR = default_inputs_dir()
 
 
-def _ensure_dir() -> None:
-    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+def _ensure_dir(path: Optional[Path] = None) -> Path:
+    d = path if path is not None else STORAGE_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _path_for(meta: BatchMetadata) -> Path:
@@ -42,9 +50,11 @@ def list_batches() -> list[BatchMetadata]:
             out.append(BatchMetadata.model_validate_json(f.read_text()))
         except Exception:
             continue
+
     def _sort_key(m: BatchMetadata) -> datetime:
         dt = m.created_at
         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
     out.sort(key=_sort_key, reverse=True)
     return out
 
@@ -57,3 +67,28 @@ def delete_batch(batch_id: str) -> bool:
         f.unlink()
         removed = True
     return removed
+
+
+def save_memory_input(provider: str, batch_id: str, prompts: list[dict]) -> Path:
+    """Persist an in-memory prompt list so batch fetch can re-load it later.
+
+    Writes a JSON list of ``{id, prompt}`` objects under
+    ``<loom_home>/inputs/<provider>_<batch_id>.json``.
+    """
+    import json
+
+    d = _ensure_dir(INPUTS_DIR)
+    safe_id = batch_id.replace("/", "_")
+    path = d / f"{provider}_{safe_id}.json"
+    path.write_text(json.dumps(prompts, indent=2, ensure_ascii=False))
+    return path
+
+
+def delete_memory_input(provider: str, batch_id: str) -> bool:
+    """Delete a previously saved in-memory input file. Returns True if removed."""
+    safe_id = batch_id.replace("/", "_")
+    path = INPUTS_DIR / f"{provider}_{safe_id}.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False

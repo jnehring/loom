@@ -13,6 +13,7 @@ ProviderName = Literal["openai", "anthropic", "google", "openrouter"]
 BatchStatus = Literal[
     "validating", "in_progress", "completed", "failed", "expired", "cancelled", "unknown"
 ]
+BatchSource = Literal["file", "memory"]
 
 
 class PromptItem(BaseModel):
@@ -37,3 +38,9 @@ class BatchMetadata(BaseModel):
     status: BatchStatus = "validating"
     output_path: Optional[str] = None
     with_meta: bool = False
+    # Responses served from cache at submit time (custom_id -> response text).
+    cached_responses: dict[str, str] = Field(default_factory=dict)
+    # Cache directory used at submit time, so fetch writes back to the same place.
+    cache_dir: Optional[str] = None
+    # Whether the batch was submitted from a file or an in-memory prompt list.
+    source: BatchSource = "file"
