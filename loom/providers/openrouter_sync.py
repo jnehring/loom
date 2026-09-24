@@ -7,6 +7,10 @@ is only available via ``loom run --sync``.
 
 from __future__ import annotations
 
+from typing import Optional
+
+from ..core.models import GenerationParams
+from .params import openai_body, openai_messages
 from .sync_base import SyncProvider
 
 
@@ -21,10 +25,14 @@ class OpenRouterSyncProvider(SyncProvider):
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL)
 
-    def generate(self, prompt: str, model: str) -> str:
+    def generate(self, prompt: str, model: str, params: Optional[GenerationParams] = None) -> str:
+        params = params or GenerationParams()
+        fields, extra = openai_body(params, provider="openrouter")
         resp = self.client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=openai_messages(prompt, params),
+            **fields,
+            **({"extra_body": extra} if extra else {}),
         )
         choices = resp.choices or []
         if not choices:

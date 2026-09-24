@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import io
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from ..core.models import BatchStatus, PromptItem
+from ..core.models import BatchStatus, GenerationParams, PromptItem
 from ..utils.errors import format_api_error
 from .base import BatchProvider
+from .params import openai_body, openai_messages
 
 if TYPE_CHECKING:
     from openai import OpenAI  # noqa: F401
@@ -37,7 +38,9 @@ class OpenAIBatchProvider(BatchProvider):
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key)
 
-    def _build_jsonl(self, items: list[PromptItem], model: str) -> bytes:
+    def _build_jsonl(self, items: list[PromptItem], model: str, params: Optional[GenerationParams] = None) -> bytes:
+        params = params or GenerationParams()
+        fields, extra = openai_body(params, provider="openai")
         buf = io.BytesIO()
         for it in items:
             line = {
@@ -46,15 +49,17 @@ class OpenAIBatchProvider(BatchProvider):
                 "url": "/v1/chat/completions",
                 "body": {
                     "model": model,
-                    "messages": [{"role": "user", "content": it.prompt}],
+                    "messages": openai_messages(it.prompt, params),
+                    **fields,
+                    **extra,
                 },
             }
             buf.write((json.dumps(line) + "\n").encode("utf-8"))
         buf.seek(0)
         return buf.getvalue()
 
-    def submit(self, items: list[PromptItem], model: str) -> str:
-        data = self._build_jsonl(items, model)
+    def submit(self, items: list[PromptItem], model: str, params: Optional[GenerationParams] = None) -> str:
+        data = self._build_jsonl(items, model, params)
         f = self.client.files.create(
             file=("loom_batch.jsonl", data),
             purpose="batch",

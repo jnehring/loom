@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ..core.models import GenerationParams
+from .params import google_config
 from .sync_base import SyncProvider
 
 
@@ -15,8 +17,9 @@ class GoogleSyncProvider(SyncProvider):
         from google import genai
         self.client = genai.Client(api_key=api_key)
 
-    def generate(self, prompt: str, model: str) -> str:
-        resp = self.client.models.generate_content(model=model, contents=prompt)
+    def generate(self, prompt: str, model: str, params: Optional[GenerationParams] = None) -> str:
+        config = google_config(params or GenerationParams())
+        resp = self.client.models.generate_content(model=model, contents=prompt, **({"config": config} if config else {}))
         text = getattr(resp, "text", None)
         if text:
             return text

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ..core.models import BatchStatus, PromptItem
+from typing import Optional
+
+from ..core.models import BatchStatus, GenerationParams, PromptItem
 
 
 class BatchProvider(ABC):
@@ -14,8 +16,8 @@ class BatchProvider(ABC):
         self.api_key = api_key
 
     @abstractmethod
-    def submit(self, items: list[PromptItem], model: str) -> str:
-        """Submit a batch; return the provider's batch_id."""
+    def submit(self, items: list[PromptItem], model: str, params: Optional[GenerationParams] = None) -> str:
+        """Submit a batch with the given generation settings; return the provider's batch_id."""
 
     @abstractmethod
     def check_status(self, batch_id: str) -> BatchStatus:

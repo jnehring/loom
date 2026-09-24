@@ -102,6 +102,19 @@ Loom(
     use_cache: bool = True,
     cache_dir: str | Path | None = None,
     with_meta: bool = False,
+    # generation settings (None = provider default)
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    stop: Sequence[str] | None = None,
+    seed: int | None = None,
+    presence_penalty: float | None = None,
+    frequency_penalty: float | None = None,
+    system: str | None = None,
+    json_mode: bool | None = None,
+    extra: dict | None = None,
+    params: GenerationParams | dict | None = None,
 )
 ```
 
@@ -114,24 +127,31 @@ Loom(
 | `use_cache`  | Read/write the on-disk response cache (default on). |
 | `cache_dir`  | Override cache location (see [Cache configuration](#cache-configuration)). |
 | `with_meta`  | Add `llm_provider` / `llm_model` to file and DataFrame outputs. |
+| `temperature` … `extra` | Default [generation settings](#generation-settings) for every request of this client. |
+| `params`     | The same settings as a `GenerationParams` or dict; explicit keyword arguments take precedence. |
+
+Every generation method (`generate`, `generate_many`, `generate_frame`, `run_file`, `submit_file`, `submit`) also
+accepts `params=` (a `GenerationParams` or dict) that overrides the client settings for that call only; fields not
+given keep the client value.
 
 ### Properties
 
 - `cache` → [`ResponseCache`](#responsecache) used by this client.
+- `params` → the client's default [`GenerationParams`](#generation-settings).
 
 ### In-memory methods
 
-#### `generate(prompt: str) -> str`
+#### `generate(prompt: str, *, params=None) -> str`
 
 Generate a single response. Raises `RuntimeError` if the provider call fails.
 
-#### `generate_many(prompts, *, on_progress=None) -> GenerationResult`
+#### `generate_many(prompts, *, on_progress=None, params=None) -> GenerationResult`
 
 Generate many responses concurrently. Per-prompt errors are captured on
 `PromptResult.error` rather than raising. `on_progress(done, total, cache_hits, errors)`
 is called after each prompt completes.
 
-#### `generate_frame(df, column="text", *, on_progress=None) -> DataFrame`
+#### `generate_frame(df, column="text", *, on_progress=None, params=None) -> DataFrame`
 
 Run every value in `column` and return a copy with an `llm_response` column
 (plus meta columns when `with_meta=True`).
@@ -144,19 +164,19 @@ Count input tokens for one string or a sequence of strings. Raises
 
 ### File-based methods
 
-#### `run_file(path, *, column="text", output=None, force=False, on_progress=None) -> RunResult`
+#### `run_file(path, *, column="text", output=None, force=False, on_progress=None, params=None) -> RunResult`
 
 Synchronously process a JSON / CSV / Parquet file and write the merged output.
 Raises `SyncOutputExistsError` if the output exists and `force=False`.
 
-#### `submit_file(path, *, column="text", output=None, force=False) -> BatchJob`
+#### `submit_file(path, *, column="text", output=None, force=False, params=None) -> BatchJob`
 
 Submit a file as a provider batch job. Cached prompts are skipped at submit
 time; a fully-cached dataset returns a completed local job immediately
 (no provider call). Raises `OutputExistsError` in that fully-cached case when
 the output exists and `force=False`.
 
-#### `submit(prompts) -> BatchJob`
+#### `submit(prompts, *, params=None) -> BatchJob`
 
 Submit an in-memory list of prompts as a batch job. Prompt snapshots are stored
 under `~/.loom/inputs/` so `fetch` can rebuild cache keys later.
@@ -247,19 +267,69 @@ List every batch known to Loom (under `~/.loom/batches/`).
 ```python
 from loom import generate, generate_many, run_file
 
-generate(prompt, provider, model, *, api_key=None, use_cache=True, cache_dir=None) -> str
+generate(prompt, provider, model, *, api_key=None, use_cache=True, cache_dir=None,
+         params=None, **settings) -> str
 
 generate_many(prompts, provider, model, *, api_key=None, workers=8,
-              use_cache=True, cache_dir=None, on_progress=None) -> GenerationResult
+              use_cache=True, cache_dir=None, on_progress=None, params=None, **settings) -> GenerationResult
 
 run_file(path, provider, model, *, column="text", api_key=None, output=None,
          workers=8, use_cache=True, cache_dir=None, force=False,
-         with_meta=False, on_progress=None) -> RunResult
+         with_meta=False, on_progress=None, params=None, **settings) -> RunResult
+
+generate("Say hi", "google", "gemini-2.0-flash", temperature=0.2, max_tokens=50)
 ```
 
-Each constructs a throwaway `Loom` client.
+Each constructs a throwaway `Loom` client; `**settings` are the [generation settings](#generation-settings)
+(`temperature=…`, `max_tokens=…`, …).
 
 ---
+
+## Generation settings
+
+```python
+from loom import GenerationParams
+
+GenerationParams(
+    temperature: float | None = None,        # 0–2 (Anthropic accepts 0–1)
+    max_tokens: int | None = None,           # maximum output tokens
+    top_p: float | None = None,              # (0, 1]
+    top_k: int | None = None,
+    stop: list[str] | None = None,           # stop sequences
+    seed: int | None = None,
+    presence_penalty: float | None = None,   # -2 to 2
+    frequency_penalty: float | None = None,  # -2 to 2
+    system: str | None = None,               # system prompt / instruction
+    json_mode: bool = False,                 # ask for a JSON object
+    extra: dict = {},                        # provider-specific passthrough
+)
+```
+
+Values are validated on construction (ranges, unknown field names). `None` means "not sent, provider default".
+
+| Setting             | CLI flag               | OpenAI                  | Anthropic        | Google (Gemini)       | OpenRouter         |
+| ------------------- | ---------------------- | ----------------------- | ---------------- | --------------------- | ------------------ |
+| `temperature`       | `--temperature`, `-t`  | `temperature`           | `temperature`    | `temperature`         | `temperature`      |
+| `max_tokens`        | `--max-tokens`         | `max_completion_tokens` | `max_tokens` ¹   | `max_output_tokens`   | `max_tokens`       |
+| `top_p`             | `--top-p`              | `top_p`                 | `top_p`          | `top_p`               | `top_p`            |
+| `top_k`             | `--top-k`              | ✗                       | `top_k`          | `top_k`               | `top_k`            |
+| `stop`              | `--stop` (repeatable)  | `stop`                  | `stop_sequences` | `stop_sequences`      | `stop`             |
+| `seed`              | `--seed`               | `seed`                  | ✗                | `seed`                | `seed`             |
+| `presence_penalty`  | `--presence-penalty`   | `presence_penalty`      | ✗                | `presence_penalty`    | `presence_penalty` |
+| `frequency_penalty` | `--frequency-penalty`  | `frequency_penalty`     | ✗                | `frequency_penalty`   | `frequency_penalty`|
+| `system`            | `--system`             | system message          | `system`         | `system_instruction`  | system message     |
+| `json_mode`         | `--json`               | `response_format` JSON  | ✗                | `response_mime_type`  | `response_format`  |
+| `extra`             | `--param key=value`    | request body            | message params   | `GenerateContentConfig` | request body     |
+
+¹ Anthropic requires `max_tokens`; Loom sends 4096 when it is not set.
+
+A setting marked ✗ raises `UnsupportedParameterError` before anything is sent — Loom never drops a setting silently.
+Unset settings are not sent, so the provider default applies. Batch and sync requests carry exactly the same settings.
+`extra` passes provider-specific options through unchanged (e.g. `reasoning_effort` for OpenAI reasoning models,
+`thinking_config` for Gemini); Loom does not validate them.
+
+Settings are stored on the batch metadata at submit time, so `fetch` caches the downloaded responses under the same
+key the submit looked up.
 
 ## Cache configuration
 
@@ -282,10 +352,12 @@ os.environ["LOOM_HOME"] = "/tmp/loom-state"
 ### Cache key
 
 ```
-sha256("<provider>" + "\0" + "<model>" + "\0" + "<prompt>")
+sha256("<provider>" + "\0" + "<model>" + "\0" + "<prompt>" [+ "\0" + "<settings>"])
 ```
 
-Changing any of the three produces a miss. There is no TTL or eviction.
+`<settings>` is the canonical JSON of the generation settings that are set (`GenerationParams.cache_token()`,
+sorted keys). With no settings it is left out, so keys written by Loom ≤ 0.4 remain valid. Changing any part
+produces a miss. There is no TTL or eviction. Cache entries written with settings also store them under `"params"`.
 
 ### `ResponseCache`
 
@@ -295,6 +367,7 @@ from loom import ResponseCache
 cache = ResponseCache(cache_dir="/tmp/c")
 cache.get("openai", "gpt-4o-mini", "hello")   # str | None
 cache.set("openai", "gpt-4o-mini", "hello", "world")
+cache.get("openai", "gpt-4o-mini", "hello", GenerationParams(temperature=0))  # separate entry
 cache.count()   # int
 cache.clear()   # returns number of files removed
 cache.dir       # Path
@@ -322,6 +395,7 @@ Disable with `use_cache=False` or CLI `--no-cache`.
 | `OutputExistsError` | File-based batch merge (or fully-cached submit) would overwrite an existing file and `force=False`. Has `.meta` and `.out_path`. |
 | `SyncOutputExistsError` | `run_file` / `generate_sync` would overwrite and `force=False`. Has `.out_path`. |
 | `TokenCountingNotSupported` | Provider has no remote token-counting API. |
+| `UnsupportedParameterError` | A generation setting the provider does not support (see the table in [Generation settings](#generation-settings)); raised before any request. Subclass of `ValueError`; has `.provider` and `.names`. |
 | `FileNotFoundError` | Input path missing, or unknown batch id. |
 | `RuntimeError` | Missing API key, or `generate()` hit a provider error. |
 | `ValueError` | Empty input, unknown provider, missing CSV column, etc. |

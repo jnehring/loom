@@ -8,8 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, Sequence, Union
 
-from ..core.models import BatchMetadata, ProviderName, PromptItem
+from ..core.models import BatchMetadata, GenerationParams, ProviderName, PromptItem
 from ..providers import get_provider, get_sync_provider
+from ..providers.params import check_supported
 from ..utils import cache as response_cache
 from ..utils import converters, storage
 from ..utils.cache import ResponseCache
@@ -125,6 +126,7 @@ def submit_items(
     with_meta: bool = False,
     source: str = "file",
     persist: bool = True,
+    params: Optional[GenerationParams] = None,
 ) -> SubmitResult:
     """Filter cache hits, submit the rest to the provider batch API.
 
@@ -133,12 +135,14 @@ def submit_items(
     """
     if not items:
         raise ValueError("No prompts to submit.")
+    # Fail before any cache lookup or provider call if a setting is not supported
+    params = check_supported(provider_name, params)
 
     cache_obj = _resolve_cache(use_cache=use_cache, cache_dir=cache_dir, cache=cache)
     cached_responses: dict[str, str] = {}
     pending: list[PromptItem] = []
     for it in items:
-        hit = cache_obj.get(provider_name, model, it.prompt)
+        hit = cache_obj.get(provider_name, model, it.prompt, params)
         if hit is not None:
             cached_responses[it.custom_id] = hit
         else:
@@ -164,12 +168,14 @@ def submit_items(
             cached_responses=cached_responses,
             cache_dir=cache_dir_str,
             source=source,  # type: ignore[arg-type]
+            params=params,
         )
         return SubmitResult(meta=meta, pending=[], from_cache=True)
 
     key = resolve_api_key(provider_name, api_key)
     provider = get_provider(provider_name, key)
-    batch_id = provider.submit(list(pending), model)
+    # Settings only when set: providers written before GenerationParams keep working
+    batch_id = provider.submit(list(pending), model, params) if not params.is_default() else provider.submit(list(pending), model)
 
     meta = BatchMetadata(
         batch_id=batch_id,
@@ -185,6 +191,7 @@ def submit_items(
         cached_responses=cached_responses,
         cache_dir=cache_dir_str,
         source=source,  # type: ignore[arg-type]
+        params=params,
     )
     if persist:
         storage.save_batch(meta)
@@ -202,6 +209,7 @@ def run_batch(
     use_cache: bool = True,
     cache_dir: Optional[PathLike] = None,
     force: bool = False,
+    params: Optional[GenerationParams] = None,
 ) -> BatchMetadata:
     """Submit a file as a provider batch job (with optional cache filtering).
 
@@ -233,6 +241,7 @@ def run_batch(
         with_meta=with_meta,
         source="file",
         persist=True,
+        params=params,
     )
 
     if result.from_cache:
@@ -315,7 +324,7 @@ def fetch_batch(
         for cid, text in responses.items():
             prompt = prompts.get(cid)
             if prompt is not None and text:
-                cache_obj.set(meta.provider, meta.model, prompt, text)
+                cache_obj.set(meta.provider, meta.model, prompt, text, meta.params)
 
     # Merge in responses that were served from cache at submit time.
     if meta.cached_responses:
@@ -445,6 +454,7 @@ def generate_items(
     cache_dir: Optional[PathLike] = None,
     cache: Optional[ResponseCache] = None,
     on_progress: Optional[Callable[[int, int, int, int], None]] = None,
+    params: Optional[GenerationParams] = None,
 ) -> SyncRunResult:
     """Run prompts synchronously through a non-batch provider.
 
@@ -453,6 +463,7 @@ def generate_items(
     """
     if not items:
         raise ValueError("No prompts to generate.")
+    params = check_supported(provider_name, params)
 
     cache_obj = _resolve_cache(use_cache=use_cache, cache_dir=cache_dir, cache=cache)
     key = resolve_api_key(provider_name, api_key)
@@ -465,7 +476,7 @@ def generate_items(
     pending: list[PromptItem] = []
 
     for it in items:
-        cached = cache_obj.get(provider_name, model, it.prompt)
+        cached = cache_obj.get(provider_name, model, it.prompt, params)
         if cached is not None:
             by_id[it.custom_id] = ItemResult(
                 custom_id=it.custom_id,
@@ -483,8 +494,9 @@ def generate_items(
 
     def _run_one(item: PromptItem) -> ItemResult:
         try:
-            text = provider.generate(item.prompt, model)
-            cache_obj.set(provider_name, model, item.prompt, text)
+            text = (provider.generate(item.prompt, model) if params.is_default()
+                    else provider.generate(item.prompt, model, params))
+            cache_obj.set(provider_name, model, item.prompt, text, params)
             return ItemResult(custom_id=item.custom_id, prompt=item.prompt, text=text)
         except Exception as exc:  # noqa: BLE001
             return ItemResult(
@@ -530,6 +542,7 @@ def generate_sync(
     with_meta: bool = False,
     cache_dir: Optional[PathLike] = None,
     on_progress: Optional[Callable[[int, int, int, int], None]] = None,
+    params: Optional[GenerationParams] = None,
 ) -> tuple[Path, int, int, int, dict[str, str]]:
     """Run prompts synchronously through a non-batch provider and write output.
 
@@ -565,6 +578,7 @@ def generate_sync(
         use_cache=use_cache,
         cache_dir=cache_dir,
         on_progress=on_progress,
+        params=params,
     )
 
     _merge_output(

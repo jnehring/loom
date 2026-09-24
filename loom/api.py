@@ -4,26 +4,28 @@ Use the :class:`Loom` client for both in-memory and file-based workflows::
 
     from loom import Loom
 
-    client = Loom("openai", "gpt-4o-mini", cache_dir="/tmp/loom-cache")
+    client = Loom("openai", "gpt-4o-mini", cache_dir="/tmp/loom-cache", temperature=0.2)
     print(client.generate("Say hello"))
     result = client.generate_many(["a", "b", "c"])
+    creative = client.generate("Write a haiku", params={"temperature": 1.0, "max_tokens": 60})
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional, Sequence, Union
+from typing import Any, Callable, Optional, Sequence, Union
 
 import pandas as pd
 
 from .core import orchestrator
-from .core.models import BatchMetadata, ProviderName, PromptItem
+from .core.models import BatchMetadata, GenerationParams, ProviderName, PromptItem, as_params
 from .utils import storage
 from .utils.cache import ResponseCache
 
 PathLike = Union[str, Path]
 ProgressCallback = Callable[[int, int, int, int], None]
+ParamsLike = Union[GenerationParams, dict[str, Any], None]
 
 
 # ---------- Result types ----------
@@ -221,6 +223,18 @@ class Loom:
     with_meta:
         When True, file-based outputs also include ``llm_provider`` /
         ``llm_model`` columns/fields.
+    temperature, max_tokens, top_p, top_k, stop, seed, presence_penalty, frequency_penalty, system, json_mode, extra:
+        Default generation settings for every request of this client (see
+        :class:`~loom.core.models.GenerationParams`). ``None`` keeps the
+        provider default. A setting the provider does not support raises
+        :class:`~loom.utils.errors.UnsupportedParameterError`.
+    params:
+        The same settings as a :class:`GenerationParams` or dict; the explicit
+        keyword arguments above take precedence.
+
+    Every generation method also takes ``params=`` to override settings for one call.
+    Responses are cached per settings: the same prompt with another temperature is a
+    separate cache entry.
     """
 
     def __init__(
@@ -233,6 +247,18 @@ class Loom:
         use_cache: bool = True,
         cache_dir: Optional[PathLike] = None,
         with_meta: bool = False,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
+        stop: Optional[Sequence[str]] = None,
+        seed: Optional[int] = None,
+        presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        system: Optional[str] = None,
+        json_mode: Optional[bool] = None,
+        extra: Optional[dict[str, Any]] = None,
+        params: ParamsLike = None,
     ) -> None:
         self.provider: ProviderName = provider
         self.model = model
@@ -241,6 +267,15 @@ class Loom:
         self.use_cache = use_cache
         self.cache_dir = Path(cache_dir).expanduser() if cache_dir else None
         self.with_meta = with_meta
+        explicit = {
+            "temperature": temperature, "max_tokens": max_tokens, "top_p": top_p, "top_k": top_k,
+            "stop": list(stop) if stop is not None else None, "seed": seed,
+            "presence_penalty": presence_penalty, "frequency_penalty": frequency_penalty,
+            "system": system, "json_mode": json_mode, "extra": extra,
+        }
+        self.params: GenerationParams = as_params(params).merged(
+            GenerationParams(**{k: v for k, v in explicit.items() if v is not None})
+        )
         self._cache = ResponseCache(
             cache_dir=self.cache_dir,
             enabled=use_cache,
@@ -251,11 +286,19 @@ class Loom:
         """The :class:`~loom.utils.cache.ResponseCache` used by this client."""
         return self._cache
 
+    def _params(self, override: ParamsLike) -> GenerationParams:
+        """Client settings with ``override``'s explicitly set fields on top."""
+        if override is None:
+            return self.params
+        if isinstance(override, dict):
+            override = GenerationParams(**override)
+        return self.params.merged(override)
+
     # ----- in-memory -----
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, *, params: ParamsLike = None) -> str:
         """Generate a response for a single prompt. Raises on provider error."""
-        result = self.generate_many([prompt])
+        result = self.generate_many([prompt], params=params)
         if result.results and result.results[0].error:
             raise RuntimeError(result.results[0].error)
         return result.texts[0] if result.texts else ""
@@ -265,6 +308,7 @@ class Loom:
         prompts: Sequence[str],
         *,
         on_progress: Optional[ProgressCallback] = None,
+        params: ParamsLike = None,
     ) -> GenerationResult:
         """Generate responses for many prompts concurrently.
 
@@ -282,6 +326,7 @@ class Loom:
             use_cache=self.use_cache,
             cache=self._cache,
             on_progress=on_progress,
+            params=self._params(params),
         )
         results = [
             PromptResult(
@@ -306,6 +351,7 @@ class Loom:
         column: str = "text",
         *,
         on_progress: Optional[ProgressCallback] = None,
+        params: ParamsLike = None,
     ) -> pd.DataFrame:
         """Run every value in ``column`` and return a copy with ``llm_response``.
 
@@ -317,7 +363,7 @@ class Loom:
                 f"Column '{column}' not found. Available: {list(df.columns)}"
             )
         prompts = [str(v) for v in df[column].tolist()]
-        result = self.generate_many(prompts, on_progress=on_progress)
+        result = self.generate_many(prompts, on_progress=on_progress, params=params)
         out = df.copy()
         out["llm_response"] = result.texts
         if self.with_meta:
@@ -357,6 +403,7 @@ class Loom:
         output: Optional[PathLike] = None,
         force: bool = False,
         on_progress: Optional[ProgressCallback] = None,
+        params: ParamsLike = None,
     ) -> RunResult:
         """Synchronously process a JSON/CSV/Parquet file and write the output."""
         out_path, total, hits, errors, error_messages = orchestrator.generate_sync(
@@ -372,6 +419,7 @@ class Loom:
             with_meta=self.with_meta,
             cache_dir=self.cache_dir,
             on_progress=on_progress,
+            params=self._params(params),
         )
         return RunResult(
             output_path=out_path,
@@ -388,6 +436,7 @@ class Loom:
         column: str = "text",
         output: Optional[PathLike] = None,
         force: bool = False,
+        params: ParamsLike = None,
     ) -> BatchJob:
         """Submit a file as a provider batch job. Returns a :class:`BatchJob`."""
         meta = orchestrator.run_batch(
@@ -401,11 +450,12 @@ class Loom:
             use_cache=self.use_cache,
             cache_dir=self.cache_dir,
             force=force,
+            params=self._params(params),
         )
         from_cache = meta.batch_id.startswith("local-")
         return BatchJob(meta, api_key=self.api_key, loom=self, from_cache=from_cache)
 
-    def submit(self, prompts: Sequence[str]) -> BatchJob:
+    def submit(self, prompts: Sequence[str], *, params: ParamsLike = None) -> BatchJob:
         """Submit an in-memory list of prompts as a provider batch job."""
         items = _items_from_prompts(prompts)
         id_map = {it.custom_id: it.custom_id for it in items}
@@ -427,6 +477,7 @@ class Loom:
             with_meta=self.with_meta,
             source="memory",
             persist=False,
+            params=self._params(params),
         )
 
         payload = [{"id": it.custom_id, "prompt": it.prompt} for it in items]
@@ -468,10 +519,12 @@ def generate(
     api_key: Optional[str] = None,
     use_cache: bool = True,
     cache_dir: Optional[PathLike] = None,
+    params: ParamsLike = None,
+    **settings: Any,
 ) -> str:
-    """One-liner: generate a single response."""
+    """One-liner: generate a single response. ``settings`` are generation settings, e.g. ``temperature=0.2``."""
     return Loom(
-        provider, model, api_key=api_key, use_cache=use_cache, cache_dir=cache_dir
+        provider, model, api_key=api_key, use_cache=use_cache, cache_dir=cache_dir, params=params, **settings
     ).generate(prompt)
 
 
@@ -485,8 +538,10 @@ def generate_many(
     use_cache: bool = True,
     cache_dir: Optional[PathLike] = None,
     on_progress: Optional[ProgressCallback] = None,
+    params: ParamsLike = None,
+    **settings: Any,
 ) -> GenerationResult:
-    """One-liner: generate responses for many prompts."""
+    """One-liner: generate responses for many prompts. ``settings`` as in :func:`generate`."""
     return Loom(
         provider,
         model,
@@ -494,6 +549,8 @@ def generate_many(
         workers=workers,
         use_cache=use_cache,
         cache_dir=cache_dir,
+        params=params,
+        **settings,
     ).generate_many(prompts, on_progress=on_progress)
 
 
@@ -511,8 +568,10 @@ def run_file(
     force: bool = False,
     with_meta: bool = False,
     on_progress: Optional[ProgressCallback] = None,
+    params: ParamsLike = None,
+    **settings: Any,
 ) -> RunResult:
-    """One-liner: synchronously process a file."""
+    """One-liner: synchronously process a file. ``settings`` as in :func:`generate`."""
     return Loom(
         provider,
         model,
@@ -521,6 +580,8 @@ def run_file(
         use_cache=use_cache,
         cache_dir=cache_dir,
         with_meta=with_meta,
+        params=params,
+        **settings,
     ).run_file(
         path,
         column=column,

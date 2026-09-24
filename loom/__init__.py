@@ -2,14 +2,14 @@
 
 Public API (lazy-loaded via ``__getattr__``)::
 
-    from loom import Loom, generate, generate_many, run_file
+    from loom import Loom, GenerationParams, generate, generate_many, run_file
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "Loom",
@@ -22,6 +22,8 @@ __all__ = [
     "ResponseCache",
     "BatchMetadata",
     "PromptItem",
+    "GenerationParams",
+    "UnsupportedParameterError",
     "OutputExistsError",
     "SyncOutputExistsError",
     "TokenCountingNotSupported",
@@ -44,7 +46,8 @@ if TYPE_CHECKING:  # pragma: no cover
         generate_many,
         run_file,
     )
-    from .core.models import BatchMetadata, PromptItem
+    from .core.models import BatchMetadata, GenerationParams, PromptItem
+    from .utils.errors import UnsupportedParameterError
     from .core.orchestrator import (
         OutputExistsError,
         SyncOutputExistsError,
@@ -67,6 +70,8 @@ _LAZY_MAP = {
     "ResponseCache": (".utils.cache", "ResponseCache"),
     "BatchMetadata": (".core.models", "BatchMetadata"),
     "PromptItem": (".core.models", "PromptItem"),
+    "GenerationParams": (".core.models", "GenerationParams"),
+    "UnsupportedParameterError": (".utils.errors", "UnsupportedParameterError"),
     "OutputExistsError": (".core.orchestrator", "OutputExistsError"),
     "SyncOutputExistsError": (".core.orchestrator", "SyncOutputExistsError"),
     "TokenCountingNotSupported": (".core.orchestrator", "TokenCountingNotSupported"),

@@ -41,6 +41,7 @@ It also ships a `loom tokens` command that uses each provider's token-counting A
       - [`loom tokens`](#loom-tokens)
       - [`loom cache clear`](#loom-cache-clear)
     - [Batch vs sequential](#batch-vs-sequential)
+    - [Generation settings](#generation-settings)
     - [Storing API keys](#storing-api-keys)
     - [Caching](#caching)
     - [Token counter](#token-counter)
@@ -120,10 +121,11 @@ The output is written next to the input as `<name>_results_<provider>_<model>.<e
 ```python
 from loom import Loom
 
-client = Loom("openai", "gpt-4o-mini", cache_dir="/tmp/loom-cache")
+client = Loom("openai", "gpt-4o-mini", cache_dir="/tmp/loom-cache", temperature=0.2, max_tokens=500)
 
 # In-memory
 print(client.generate("Say hello"))
+print(client.generate("Write a haiku", params={"temperature": 1.0}))  # per-call override
 result = client.generate_many(["a", "b", "c"])
 print(result.texts, result.cache_hits)
 
@@ -159,6 +161,7 @@ Submit a dataset as a batch job (default) or run it synchronously with `--sync`.
 | `--cache-dir`        | `$LOOM_CACHE_DIR` / `~/.loom/cache`        | Override the response-cache directory.                                                                                     |
 | `--force`            | off                                        | Overwrite an existing output file without prompting.                                                                       |
 | `--with-meta`        | off                                        | Add `llm_provider` and `llm_model` columns (CSV/Parquet) or fields (JSON) to the output, alongside `llm_response`.     |
+| `--temperature`, `-t`, `--max-tokens`, `--top-p`, `--top-k`, `--stop`, `--seed`, `--presence-penalty`, `--frequency-penalty`, `--system`, `--json`, `--param` | provider default | Generation settings, see [Generation settings](#generation-settings). |
 
 OpenRouter has no batch API; using `--provider openrouter` without `--sync` exits with a helpful error.
 
@@ -227,6 +230,48 @@ Delete every cached response under the cache directory (default `~/.loom/cache/`
 
 Pick **batch** when you have a large dataset and don't care about wall-clock time. Pick **sync** when you want results now, or when the provider has no batch API (OpenRouter).
 
+### Generation settings
+
+Temperature, output length and the other common sampling options work the same way for every provider. Loom
+translates them into each provider's request format:
+
+| Setting             | CLI flag               | OpenAI                  | Anthropic        | Google (Gemini)       | OpenRouter         |
+| ------------------- | ---------------------- | ----------------------- | ---------------- | --------------------- | ------------------ |
+| `temperature`       | `--temperature`, `-t`  | `temperature`           | `temperature`    | `temperature`         | `temperature`      |
+| `max_tokens`        | `--max-tokens`         | `max_completion_tokens` | `max_tokens` ¹   | `max_output_tokens`   | `max_tokens`       |
+| `top_p`             | `--top-p`              | `top_p`                 | `top_p`          | `top_p`               | `top_p`            |
+| `top_k`             | `--top-k`              | ✗                       | `top_k`          | `top_k`               | `top_k`            |
+| `stop`              | `--stop` (repeatable)  | `stop`                  | `stop_sequences` | `stop_sequences`      | `stop`             |
+| `seed`              | `--seed`               | `seed`                  | ✗                | `seed`                | `seed`             |
+| `presence_penalty`  | `--presence-penalty`   | `presence_penalty`      | ✗                | `presence_penalty`    | `presence_penalty` |
+| `frequency_penalty` | `--frequency-penalty`  | `frequency_penalty`     | ✗                | `frequency_penalty`   | `frequency_penalty`|
+| `system`            | `--system`             | system message          | `system`         | `system_instruction`  | system message     |
+| `json_mode`         | `--json`               | `response_format` JSON  | ✗                | `response_mime_type`  | `response_format`  |
+| `extra`             | `--param key=value`    | request body            | message params   | `GenerateContentConfig` | request body     |
+
+¹ Anthropic requires `max_tokens`; Loom sends 4096 when it is not set.
+
+A setting marked ✗ raises `UnsupportedParameterError` before anything is sent — Loom never drops a setting silently.
+Unset settings are not sent, so the provider default applies. Batch and sync requests carry exactly the same settings.
+`extra` passes provider-specific options through unchanged (e.g. `reasoning_effort` for OpenAI reasoning models,
+`thinking_config` for Gemini); Loom does not validate them.
+
+```bash
+loom run -p google -m gemini-2.0-flash -f data.csv -t 0.2 --max-tokens 800 --system "Answer in German." --json
+loom run -p anthropic -m claude-3-5-sonnet-latest -f data.csv --temperature 0 --stop "###"
+loom run -p openai -m o4-mini -f data.csv --param reasoning_effort=low
+```
+
+```python
+from loom import Loom, GenerationParams
+
+client = Loom("google", "gemini-2.0-flash", temperature=0.2, max_tokens=800)
+client.generate("…", params={"temperature": 0.9})        # override for one call
+client = Loom("openai", "gpt-4o-mini", params=GenerationParams(seed=7, json_mode=True))
+```
+
+Settings are part of the cache key (see [Caching](#caching)): the same prompt at another temperature is a new request.
+
 ### Storing API keys
 
 Loom resolves keys in this order: **`--api-key` flag → environment variable → `.env` file** in the current working directory (loaded via `python-dotenv`, does not overwrite existing env vars).
@@ -244,7 +289,7 @@ A `.env` in the working directory is the friction-free option for daily use; `--
 
 ### Caching
 
-Loom caches every response under `~/.loom/cache/` (override with `--cache-dir`, `$LOOM_CACHE_DIR`, or `$LOOM_HOME`). The cache key is `sha256("<provider>|<model>|<prompt>")`, so changing any of those misses the cache. There is no TTL or eviction — the cache grows monotonically until you clear it.
+Loom caches every response under `~/.loom/cache/` (override with `--cache-dir`, `$LOOM_CACHE_DIR`, or `$LOOM_HOME`). The cache key is `sha256("<provider>|<model>|<prompt>|<settings>")`, so changing any of those misses the cache. `<settings>` is the canonical JSON of the [generation settings](#generation-settings) that are set; with no settings it is left out, so caches from Loom ≤ 0.4 stay valid. There is no TTL or eviction — the cache grows monotonically until you clear it.
 
 **Sync mode** reads the cache before calling the provider and writes every successful response.
 
@@ -316,7 +361,7 @@ loom/
   main.py                       # CLI entry point (Typer commands)
   core/
     orchestrator.py             # run_batch, fetch_batch, generate_sync, count_tokens, generate_items
-    models.py                   # Pydantic models, ProviderName, BatchStatus
+    models.py                   # Pydantic models, ProviderName, BatchStatus, GenerationParams
   eval/
     eval_providers.py           # Provider evaluation script (init / fetch)
   providers/
@@ -326,6 +371,7 @@ loom/
     google.py                   # Batch implementations
     openai_sync.py, anthropic_sync.py,
     google_sync.py, openrouter_sync.py   # Sync implementations
+    params.py                   # GenerationParams → provider request fields
   utils/
     converters.py               # Load / merge JSON, CSV & Parquet
     storage.py                  # ~/.loom/batches/ persistence

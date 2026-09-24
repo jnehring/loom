@@ -48,11 +48,13 @@ def test_generate_many_uses_cache(fake_sync, tmp_path: Path) -> None:
 
 
 def test_generate_many_captures_errors(fake_sync, tmp_path: Path) -> None:
-    fake_sync.generate.side_effect = [
-        "ok",
-        RuntimeError("boom"),
-        "ok2",
-    ]
+    # Keyed by prompt, not call order: prompts run concurrently
+    def answer(prompt: str, model: str) -> str:
+        if prompt == "b":
+            raise RuntimeError("boom")
+        return {"a": "ok", "c": "ok2"}[prompt]
+
+    fake_sync.generate.side_effect = answer
     client = Loom("openai", "m", api_key="fake", cache_dir=tmp_path, use_cache=False)
     result = client.generate_many(["a", "b", "c"])
     assert result.errors == 1

@@ -1,6 +1,9 @@
 """On-disk response cache for sync and batch generation.
 
-Keyed by sha256(provider | model | prompt). Stored as one small JSON file per
+Keyed by sha256(provider | model | prompt [| settings]). The settings part is the
+canonical JSON of the non-default :class:`~loom.core.models.GenerationParams`
+and is left out when every setting is at its default, so keys created before
+generation settings existed stay valid. Stored as one small JSON file per
 entry under the configured cache directory (default ``~/.loom/cache/``).
 
 The cache is intentionally simple — no eviction, no TTL. Users can clear it via
@@ -13,11 +16,18 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 from .paths import default_cache_dir
 
+if TYPE_CHECKING:
+    from ..core.models import GenerationParams
+
 PathLike = Union[str, Path]
+
+
+def _token(params: "Optional[GenerationParams]") -> str:
+    return params.cache_token() if params is not None else ""
 
 
 class ResponseCache:
@@ -49,22 +59,26 @@ class ResponseCache:
         self._dir.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def key(provider: str, model: str, prompt: str) -> str:
+    def key(provider: str, model: str, prompt: str, params: "Optional[GenerationParams]" = None) -> str:
         h = hashlib.sha256()
         h.update(provider.encode("utf-8"))
         h.update(b"\x00")
         h.update(model.encode("utf-8"))
         h.update(b"\x00")
         h.update(prompt.encode("utf-8"))
+        token = _token(params)
+        if token:
+            h.update(b"\x00")
+            h.update(token.encode("utf-8"))
         return h.hexdigest()
 
-    def _path(self, provider: str, model: str, prompt: str) -> Path:
-        return self._dir / f"{self.key(provider, model, prompt)}.json"
+    def _path(self, provider: str, model: str, prompt: str, params: "Optional[GenerationParams]" = None) -> Path:
+        return self._dir / f"{self.key(provider, model, prompt, params)}.json"
 
-    def get(self, provider: str, model: str, prompt: str) -> Optional[str]:
+    def get(self, provider: str, model: str, prompt: str, params: "Optional[GenerationParams]" = None) -> Optional[str]:
         if not self._enabled:
             return None
-        p = self._path(provider, model, prompt)
+        p = self._path(provider, model, prompt, params)
         if not p.exists():
             return None
         try:
@@ -74,7 +88,9 @@ class ResponseCache:
         except Exception:  # noqa: BLE001
             return None
 
-    def set(self, provider: str, model: str, prompt: str, response: str) -> None:  # noqa: A001
+    def set(  # noqa: A001
+        self, provider: str, model: str, prompt: str, response: str, params: "Optional[GenerationParams]" = None
+    ) -> None:
         if not self._enabled:
             return
         self._ensure_dir()
@@ -84,7 +100,10 @@ class ResponseCache:
             "response": response,
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
-        self._path(provider, model, prompt).write_text(
+        token = _token(params)
+        if token:
+            obj["params"] = json.loads(token)
+        self._path(provider, model, prompt, params).write_text(
             json.dumps(obj, ensure_ascii=False)
         )
 
@@ -145,12 +164,14 @@ def get_cache(
 CACHE_DIR = default_cache_dir()  # snapshot at import; prefer ResponseCache.dir
 
 
-def get(provider: str, model: str, prompt: str) -> Optional[str]:
-    return _default_cache().get(provider, model, prompt)
+def get(provider: str, model: str, prompt: str, params: "Optional[GenerationParams]" = None) -> Optional[str]:
+    return _default_cache().get(provider, model, prompt, params)
 
 
-def set(provider: str, model: str, prompt: str, response: str) -> None:  # noqa: A001
-    _default_cache().set(provider, model, prompt, response)
+def set(  # noqa: A001
+    provider: str, model: str, prompt: str, response: str, params: "Optional[GenerationParams]" = None
+) -> None:
+    _default_cache().set(provider, model, prompt, response, params)
 
 
 def clear() -> int:

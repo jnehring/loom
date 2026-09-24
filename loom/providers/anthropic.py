@@ -5,9 +5,12 @@ Docs: https://platform.claude.com/docs/en/build-with-claude/batch-processing
 
 from __future__ import annotations
 
-from ..core.models import BatchStatus, PromptItem
+from typing import Optional
+
+from ..core.models import BatchStatus, GenerationParams, PromptItem
 from ..utils.errors import format_api_error
 from .base import BatchProvider
+from .params import anthropic_params
 
 
 _STATUS_MAP = {
@@ -25,17 +28,19 @@ class AnthropicBatchProvider(BatchProvider):
         from anthropic import Anthropic
         self.client = Anthropic(api_key=api_key)
 
-    def submit(self, items: list[PromptItem], model: str) -> str:
+    def submit(self, items: list[PromptItem], model: str, params: Optional[GenerationParams] = None) -> str:
         from anthropic.types.messages.batch_create_params import Request
         from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
 
+        fields, extra = anthropic_params(params or GenerationParams())
         requests = [
             Request(
                 custom_id=it.custom_id,
-                params=MessageCreateParamsNonStreaming(
+                params=MessageCreateParamsNonStreaming(  # type: ignore[typeddict-item]
                     model=model,
-                    max_tokens=4096,
                     messages=[{"role": "user", "content": it.prompt}],
+                    **fields,
+                    **extra,
                 ),
             )
             for it in items

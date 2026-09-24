@@ -8,12 +8,14 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from ..core.models import ProviderName
 
-# Load .env once at import-time (does not override existing env vars).
-load_dotenv(override=False)
+# Load .env once at import-time (does not override existing env vars). Search from the current
+# working directory: without usecwd, python-dotenv searches upward from this file's location,
+# i.e. the installed package, and misses the .env of the project that uses Loom.
+load_dotenv(find_dotenv(usecwd=True), override=False)
 
 
 ENV_VAR = {

@@ -49,8 +49,8 @@ def run_init(target_provider=None):
             pass
     
     # Load dotenv to read .env file
-    from dotenv import load_dotenv
-    load_dotenv(override=False)
+    from dotenv import find_dotenv, load_dotenv
+    load_dotenv(find_dotenv(usecwd=True), override=False)
 
     for provider, model in PROVIDERS.items():
         if target_provider and provider != target_provider:
@@ -133,8 +133,8 @@ def run_fetch(target_provider=None):
         return
         
     # Load dotenv
-    from dotenv import load_dotenv
-    load_dotenv(override=False)
+    from dotenv import find_dotenv, load_dotenv
+    load_dotenv(find_dotenv(usecwd=True), override=False)
 
     still_pending = dict(state)
     

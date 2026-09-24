@@ -22,6 +22,7 @@ from rich.progress import (
 from rich.table import Table
 
 from .core import orchestrator
+from .core.models import GenerationParams
 from .utils import cache as response_cache
 from .utils import storage
 
@@ -44,6 +45,32 @@ def _print_prompt_errors(errors: dict[str, str]) -> None:
     console.print(f"[red]{len(errors)} error(s):[/red]")
     for cid, msg in sorted(errors.items()):
         console.print(f"  [dim]{cid}:[/dim] {msg}")
+
+
+def _params_or_exit(**fields) -> GenerationParams:
+    """Build GenerationParams from CLI options; print a readable error on invalid values."""
+    try:
+        return GenerationParams(**{k: v for k, v in fields.items() if v is not None and v != []})
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Error:[/red] invalid generation setting: {e}")
+        raise typer.Exit(code=1)
+
+
+def _parse_extra(values: list[str]) -> dict:
+    """``--param key=value`` pairs; values are parsed as JSON when possible (numbers, booleans, objects)."""
+    import json
+
+    out = {}
+    for item in values:
+        key, sep, raw = item.partition("=")
+        if not sep or not key:
+            console.print(f"[red]Error:[/red] --param expects key=value, got {item!r}")
+            raise typer.Exit(code=1)
+        try:
+            out[key] = json.loads(raw)
+        except ValueError:
+            out[key] = raw
+    return out
 
 
 class Provider(str, Enum):
@@ -97,7 +124,25 @@ def run_cmd(
         "--with-meta",
         help="Add 'llm_provider' and 'llm_model' columns/fields to the output, alongside 'llm_response'.",
     ),
+    temperature: Optional[float] = typer.Option(None, "--temperature", "-t", help="Sampling temperature (0–2; Anthropic 0–1)."),
+    max_tokens: Optional[int] = typer.Option(None, "--max-tokens", help="Maximum output tokens per response."),
+    top_p: Optional[float] = typer.Option(None, "--top-p", help="Nucleus sampling (0–1)."),
+    top_k: Optional[int] = typer.Option(None, "--top-k", help="Top-k sampling (Anthropic, Google, OpenRouter)."),
+    stop: list[str] = typer.Option([], "--stop", help="Stop sequence; repeat for several."),
+    seed: Optional[int] = typer.Option(None, "--seed", help="Seed for reproducible sampling (OpenAI, Google, OpenRouter)."),
+    presence_penalty: Optional[float] = typer.Option(None, "--presence-penalty", help="-2 to 2 (OpenAI, Google, OpenRouter)."),
+    frequency_penalty: Optional[float] = typer.Option(None, "--frequency-penalty", help="-2 to 2 (OpenAI, Google, OpenRouter)."),
+    system: Optional[str] = typer.Option(None, "--system", help="System prompt applied to every request."),
+    json_mode: bool = typer.Option(False, "--json", help="Ask for a JSON object as the response (OpenAI, Google, OpenRouter)."),
+    param: list[str] = typer.Option(
+        [], "--param", help="Provider-specific setting as key=value (JSON values allowed); repeat for several."
+    ),
 ) -> None:
+    params = _params_or_exit(
+        temperature=temperature, max_tokens=max_tokens, top_p=top_p, top_k=top_k, stop=stop, seed=seed,
+        presence_penalty=presence_penalty, frequency_penalty=frequency_penalty, system=system,
+        json_mode=json_mode or None, extra=_parse_extra(param) or None,
+    )
     if provider == Provider.openrouter and not sync:
         console.print(
             "[red]Error:[/red] OpenRouter has no batch API. Re-run with [bold]--sync[/bold]."
@@ -117,6 +162,7 @@ def run_cmd(
             cache_dir=cache_dir,
             force=force,
             with_meta=with_meta,
+            params=params,
         )
         return
 
@@ -133,6 +179,7 @@ def run_cmd(
             use_cache=not no_cache,
             cache_dir=cache_dir,
             force=force,
+            params=params,
         )
     except orchestrator.OutputExistsError as exc:
         console.print(
@@ -153,6 +200,7 @@ def run_cmd(
                 use_cache=not no_cache,
                 cache_dir=cache_dir,
                 force=True,
+                params=params,
             )
         except Exception as e:  # noqa: BLE001
             console.print(f"[red]Error:[/red] {e}")
@@ -192,10 +240,12 @@ def _run_sync(
     force: bool,
     with_meta: bool,
     cache_dir: Optional[Path] = None,
+    params: Optional[GenerationParams] = None,
 ) -> None:
+    settings = f" settings={params.cache_token()}" if params and not params.is_default() else ""
     console.print(
         f"[bold cyan]Weaving live...[/bold cyan] provider={provider.value} model={model} "
-        f"workers={workers} cache={'on' if use_cache else 'off'}"
+        f"workers={workers} cache={'on' if use_cache else 'off'}{settings}"
     )
     try:
         with Progress(
@@ -226,6 +276,7 @@ def _run_sync(
                 with_meta=with_meta,
                 cache_dir=cache_dir,
                 on_progress=_on_progress,
+                params=params,
             )
     except orchestrator.SyncOutputExistsError as exc:
         console.print(
@@ -246,6 +297,7 @@ def _run_sync(
             force=True,
             with_meta=with_meta,
             cache_dir=cache_dir,
+            params=params,
         )
     except Exception as e:  # noqa: BLE001
         console.print(f"[red]Error:[/red] {e}")

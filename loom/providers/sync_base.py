@@ -9,6 +9,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from ..core.models import GenerationParams
+
 
 class SyncProvider(ABC):
     name: str
@@ -17,7 +19,7 @@ class SyncProvider(ABC):
         self.api_key = api_key
 
     @abstractmethod
-    def generate(self, prompt: str, model: str) -> str:
+    def generate(self, prompt: str, model: str, params: Optional[GenerationParams] = None) -> str:
         """Return the assistant's text reply for a single prompt."""
 
     def count_tokens(self, prompt: str, model: str) -> Optional[int]:

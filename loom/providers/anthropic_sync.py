@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ..core.models import GenerationParams
+from .params import anthropic_params
 from .sync_base import SyncProvider
 
 
@@ -15,11 +17,13 @@ class AnthropicSyncProvider(SyncProvider):
         from anthropic import Anthropic
         self.client = Anthropic(api_key=api_key)
 
-    def generate(self, prompt: str, model: str) -> str:
+    def generate(self, prompt: str, model: str, params: Optional[GenerationParams] = None) -> str:
+        fields, extra = anthropic_params(params or GenerationParams())
         msg = self.client.messages.create(
             model=model,
-            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
+            **fields,
+            **({"extra_body": extra} if extra else {}),
         )
         parts = []
         for block in msg.content or []:

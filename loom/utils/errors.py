@@ -26,3 +26,16 @@ def format_api_error(obj: Any) -> str:
     if isinstance(msg, str) and msg.strip():
         return msg.strip()
     return str(obj).strip()
+
+
+class UnsupportedParameterError(ValueError):
+    """A generation setting the chosen provider does not support."""
+
+    def __init__(self, provider: str, names: list[str]) -> None:
+        joined = ", ".join(sorted(names))
+        super().__init__(
+            f"Provider '{provider}' does not support: {joined}. "
+            "Remove the setting or pass a provider-specific option via 'extra'."
+        )
+        self.provider = provider
+        self.names = names

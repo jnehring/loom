@@ -13,11 +13,12 @@ on each response — never by list position.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional
 
-from ..core.models import BatchStatus, PromptItem
+from ..core.models import BatchStatus, GenerationParams, PromptItem
 from ..utils.errors import format_api_error
 from .base import BatchProvider
+from .params import google_config
 
 
 _METADATA_PATCHED = False
@@ -114,11 +115,13 @@ class GoogleBatchProvider(BatchProvider):
         from google import genai
         self.client = genai.Client(api_key=api_key)
 
-    def submit(self, items: list[PromptItem], model: str) -> str:
+    def submit(self, items: list[PromptItem], model: str, params: Optional[GenerationParams] = None) -> str:
+        config = google_config(params or GenerationParams())
         inlined = [
             {
                 "contents": [{"parts": [{"text": it.prompt}], "role": "user"}],
                 "metadata": {"custom_id": it.custom_id},
+                **({"config": config} if config else {}),
             }
             for it in items
         ]
