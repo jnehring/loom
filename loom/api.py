@@ -208,7 +208,7 @@ class Loom:
     Parameters
     ----------
     provider:
-        ``"openai"``, ``"anthropic"``, ``"google"``, or ``"openrouter"``.
+        ``"openai"``, ``"anthropic"``, ``"google"``, ``"openrouter"``, or ``"alibaba"``.
     model:
         Provider-specific model id.
     api_key:

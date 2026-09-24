@@ -15,6 +15,9 @@ def get_provider(name: ProviderName, api_key: str) -> BatchProvider:
     if name == "google":
         from .google import GoogleBatchProvider
         return GoogleBatchProvider(api_key=api_key)
+    if name == "alibaba":
+        from .alibaba import AlibabaBatchProvider
+        return AlibabaBatchProvider(api_key=api_key)
     if name == "openrouter":
         raise ValueError(
             "OpenRouter has no batch API. Use 'loom run --sync --provider openrouter ...' instead."
@@ -32,6 +35,9 @@ def get_sync_provider(name: ProviderName, api_key: str) -> SyncProvider:
     if name == "google":
         from .google_sync import GoogleSyncProvider
         return GoogleSyncProvider(api_key=api_key)
+    if name == "alibaba":
+        from .alibaba import AlibabaSyncProvider
+        return AlibabaSyncProvider(api_key=api_key)
     if name == "openrouter":
         from .openrouter_sync import OpenRouterSyncProvider
         return OpenRouterSyncProvider(api_key=api_key)

@@ -23,6 +23,7 @@ ENV_VAR = {
     "anthropic": "ANTHROPIC_API_KEY",
     "google": "GOOGLE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "alibaba": "DASHSCOPE_API_KEY",
 }
 
 

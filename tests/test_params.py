@@ -261,3 +261,23 @@ def test_cli_rejects_invalid_setting(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["run", "-f", str(inp), "-p", "google", "-m", "g", "--sync", "--temperature", "9"])
     assert result.exit_code == 1
     assert "invalid generation setting" in result.stdout
+
+
+def test_alibaba_uses_openai_compatible_body_and_region_endpoint(monkeypatch) -> None:
+    import json
+
+    from loom.core.models import GenerationParams, PromptItem
+    from loom.providers import get_provider, get_sync_provider
+    from loom.providers.alibaba import ALIBABA_DEFAULT_BASE_URL
+
+    monkeypatch.delenv("DASHSCOPE_BASE_URL", raising=False)
+    batch = get_provider("alibaba", "k")
+    assert str(batch.client.base_url).rstrip("/") == ALIBABA_DEFAULT_BASE_URL
+    params = GenerationParams(max_tokens=50, top_k=5, extra={"enable_thinking": False})
+    line = json.loads(batch._build_jsonl([PromptItem(custom_id="0", prompt="hi")], "qwen-plus", params))
+    assert line["url"] == "/v1/chat/completions" and line["body"]["model"] == "qwen-plus"
+    assert line["body"]["max_tokens"] == 50 and "max_completion_tokens" not in line["body"]
+    assert line["body"]["top_k"] == 5 and line["body"]["enable_thinking"] is False
+    monkeypatch.setenv("DASHSCOPE_BASE_URL", "https://example.eu-central-1.maas.aliyuncs.com/compatible-mode/v1")
+    sync = get_sync_provider("alibaba", "k")
+    assert "eu-central-1" in str(sync.client.base_url) and sync.count_tokens("x", "qwen-plus") is None

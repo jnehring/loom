@@ -78,6 +78,7 @@ class Provider(str, Enum):
     anthropic = "anthropic"
     google = "google"
     openrouter = "openrouter"
+    alibaba = "alibaba"
 
 
 @app.command(

@@ -2,7 +2,7 @@
 
 <img src="https://github.com/jnehring/loom/blob/main/logos/loom-logo-small.png" width="250" style="float:left">
 
-Weave LLM jobs across OpenAI, Anthropic, Google, and OpenRouter — in batch or live.
+Weave LLM jobs across OpenAI, Anthropic, Google, OpenRouter, and Alibaba Cloud (Qwen) — in batch or live.
 
 ## 1. Introduction
 
@@ -21,6 +21,7 @@ It also ships a `loom tokens` command that uses each provider's token-counting A
 | Anthropic       | ✓                  | ✓                              | ✓                             |
 | Google (Gemini) | ✓                  | ✓                              | ✓                             |
 | OpenRouter      | ✗                  | ✓                              | ✗ — no remote API             |
+| Alibaba Cloud (Model Studio, Qwen) | ✓ | ✓                      | ✗ — no remote API             |
 
 ### Table of contents
 
@@ -283,7 +284,16 @@ OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_API_KEY=...
 OPENROUTER_API_KEY=sk-or-...
+DASHSCOPE_API_KEY=sk-...
+# optional, Alibaba Cloud: region/workspace endpoint (default Singapore)
+# DASHSCOPE_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 ```
+
+**Alibaba Cloud (Model Studio).** Batch and sync use the OpenAI-compatible API. API keys, endpoints and model lists are
+per region; set `DASHSCOPE_BASE_URL` to the endpoint of the key's region (Beijing:
+`https://dashscope.aliyuncs.com/compatible-mode/v1`, workspace endpoints:
+`https://{WorkspaceId}.{region}.maas.aliyuncs.com/compatible-mode/v1`). A batch file holds one model and one
+thinking mode; pass switches like `enable_thinking` via `extra`.
 
 A `.env` in the working directory is the friction-free option for daily use; `--api-key` is handy for one-offs or shared workstations.
 

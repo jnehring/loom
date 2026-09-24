@@ -4,7 +4,7 @@ One place per provider, shared by the batch and the sync implementation, so both
 send exactly the same settings. Unsupported settings raise
 :class:`~loom.utils.errors.UnsupportedParameterError` instead of being dropped.
 
-| Setting             | OpenAI                  | OpenRouter          | Anthropic        | Google                 |
+| Setting             | OpenAI                  | OpenRouter, Alibaba | Anthropic        | Google                 |
 |---------------------|-------------------------|---------------------|------------------|------------------------|
 | temperature         | temperature             | temperature         | temperature      | temperature            |
 | max_tokens          | max_completion_tokens   | max_tokens          | max_tokens       | max_output_tokens      |
@@ -30,6 +30,7 @@ ANTHROPIC_DEFAULT_MAX_TOKENS = 4096
 _UNSUPPORTED = {
     "openai": {"top_k"},
     "openrouter": set(),
+    "alibaba": set(),  # top_k and model extras (e.g. enable_thinking) go through extra_body
     "anthropic": {"seed", "presence_penalty", "frequency_penalty", "json_mode"},
     "google": set(),
 }
@@ -44,7 +45,7 @@ def check_supported(provider: str, params: Optional[GenerationParams]) -> Genera
     return params
 
 
-# ---------- OpenAI-compatible (OpenAI, OpenRouter) ----------
+# ---------- OpenAI-compatible (OpenAI, OpenRouter, Alibaba) ----------
 
 def openai_messages(prompt: str, params: GenerationParams) -> list[dict[str, str]]:
     messages = []

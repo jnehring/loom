@@ -48,3 +48,15 @@ def test_delete_batch_removes_file() -> None:
 
 def test_delete_batch_returns_false_when_missing() -> None:
     assert storage.delete_batch("nope") is False
+
+
+def test_loom_home_set_after_import_is_honoured(tmp_path, monkeypatch):
+    """Callers often import loom first and set LOOM_HOME later (e.g. per project); batch state must follow it."""
+    from loom.utils import storage as st
+
+    monkeypatch.setattr(st, "STORAGE_DIR", None)
+    monkeypatch.setattr(st, "INPUTS_DIR", None)
+    monkeypatch.setenv("LOOM_HOME", str(tmp_path / "home"))
+    assert st.storage_dir() == tmp_path / "home" / "batches"
+    path = st.save_memory_input("openai", "b/1", [{"id": "0", "prompt": "x"}])
+    assert path.parent == tmp_path / "home" / "inputs"
