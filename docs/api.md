@@ -94,7 +94,7 @@ if fetch.done:
 
 ```python
 Loom(
-    provider: Literal["openai", "anthropic", "google", "openrouter"],
+    provider: Literal["openai", "anthropic", "google", "openrouter", "alibaba"],
     model: str,
     *,
     api_key: str | None = None,
@@ -160,7 +160,7 @@ Run every value in `column` and return a copy with an `llm_response` column
 
 Count input tokens for one string or a sequence of strings. Raises
 `TokenCountingNotSupported` for providers without a remote counting API
-(OpenAI, OpenRouter).
+(OpenRouter, Alibaba Cloud).
 
 ### File-based methods
 

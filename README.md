@@ -17,7 +17,7 @@ It also ships a `loom tokens` command that uses each provider's token-counting A
 
 | Provider        | Batch (`loom run`) | Sequential (`loom run --sync`) | Token counter (`loom tokens`) |
 | --------------- | ------------------ | ------------------------------ | ----------------------------- |
-| OpenAI          | ✓                  | ✓                              | ✗ — no remote API             |
+| OpenAI          | ✓                  | ✓                              | ✓                             |
 | Anthropic       | ✓                  | ✓                              | ✓                             |
 | Google (Gemini) | ✓                  | ✓                              | ✓                             |
 | OpenRouter      | ✗                  | ✓                              | ✗ — no remote API             |
@@ -151,7 +151,7 @@ Submit a dataset as a batch job (default) or run it synchronously with `--sync`.
 | Flag                 | Default                                    | Description                                                                                                            |
 | -------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
 | `--file`, `-f`       | _required_                                 | Input `.json`, `.csv`, `.parquet`, `.json.gz`, or `.csv.gz`.                                                           |
-| `--provider`, `-p`   | _required_                                 | `openai`, `anthropic`, `google`, or `openrouter`.                                                                      |
+| `--provider`, `-p`   | _required_                                 | `openai`, `anthropic`, `google`, `openrouter`, or `alibaba`.                                                           |
 | `--model`, `-m`      | _required_                                 | Provider-specific model id (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-latest`, `gemini-2.0-flash`, `openai/gpt-4o-mini`). |
 | `--col`, `-c`        | `text`                                     | Prompt column name (CSV and Parquet).                                                                                  |
 | `--api-key`          | env / `.env`                               | Override the resolved API key for this run.                                                                            |
@@ -203,7 +203,7 @@ Count input tokens for every prompt using the provider's token-counting API. See
 | Flag               | Default      | Description                                       |
 | ------------------ | ------------ | ------------------------------------------------- |
 | `--file`, `-f`     | _required_   | Input `.json`, `.csv`, `.parquet`, `.json.gz`, or `.csv.gz`. |
-| `--provider`, `-p` | _required_   | `openai`, `anthropic`, `google`, or `openrouter`. |
+| `--provider`, `-p` | _required_   | `openai`, `anthropic`, `google`, `openrouter`, or `alibaba`. |
 | `--model`, `-m`    | _required_   | Provider-specific model id.                       |
 | `--col`, `-c`      | `text`       | Prompt column name (CSV and Parquet). |
 | `--api-key`        | env / `.env` | Override the resolved API key.                    |
