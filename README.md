@@ -1,12 +1,12 @@
-# Loom: LLM Batch Processing Made Easy
+# loom-batch: LLM batch processing made easy
 
-<p align="center"><img src="https://raw.githubusercontent.com/jnehring/loom/main/logos/loom-logo-small.png" width="250" alt="Loom logo"></p>
+Process datasets in CSV, JSON, or Parquet with LLMs, and get the answers back as a new column. Batch processing costs up to half the regular price, and the same command works for OpenAI, Anthropic, Gemini, OpenRouter, and Qwen.
 
-Run a whole dataset of prompts through any major LLM with one command, and get your file back with the answers in a new column.
+<p align="center"><img src="https://raw.githubusercontent.com/jnehring/loom/main/docs/demo.gif" width="800" alt="loom-batch demo: submit a CSV as an OpenAI batch, fetch the results, and print the CSV with a new llm_response column"></p>
 
 ## 1. Introduction
 
-Loom is a Python CLI **and library** for running a dataset of prompts (JSON, CSV, or Parquet) through an LLM. It writes the responses into a copy of your file and keeps every original column.
+loom-batch is a Python CLI **and library** (`pip install loom-batch`, command `loom`) for running a dataset of prompts (JSON, CSV, or Parquet) through an LLM. It writes the responses into a copy of your file and keeps every original column.
 
 - **One interface, five providers.** OpenAI, Anthropic, Google Gemini, OpenRouter, and Alibaba Cloud (Qwen). Switching provider means changing `--provider` and `--model`; the input file and the command stay the same.
 - **Batch or live.** `loom run` submits the dataset to the provider's batch API: 50% cheaper on OpenAI and Anthropic, with results within 24 hours that you collect with `loom fetch`. `loom run --sync` calls the API live with a pool of concurrent workers and writes the output right away.
@@ -14,6 +14,15 @@ Loom is a Python CLI **and library** for running a dataset of prompts (JSON, CSV
 - **The same generation settings everywhere.** Temperature, max tokens, system prompt, JSON mode, and more are translated into each provider's request format. A setting the provider doesn't support raises an error instead of being dropped silently.
 - **Token counts before you spend.** `loom tokens` counts the input tokens of a dataset with the provider's own token-counting API.
 - **CLI or Python.** The [`Loom`](docs/api.md) client offers the same features for in-memory prompts and for files.
+
+### Use cases
+
+- **Analysing document collections.** Classify thousands of texts in one run, for example newspaper articles from a spreadsheet exported to CSV, tagged by topic, sentiment, or political leaning. The labels land in a new column next to the articles.
+- **An LLM layer for Python code.** The [`Loom`](docs/api.md) client gives your code one interface to five providers, including their batch APIs, so switching model or provider is a one-word change.
+- **Comparing models.** Run the same dataset through several providers and models; each run gets its own output file named after provider and model, ready to compare before you pick a model.
+- **Extracting information.** Ask for fields such as names, dates, or amounts from emails, contracts, or support tickets. `--json` makes the model answer with a JSON object (OpenAI, Google, OpenRouter, Alibaba), stored as text in `llm_response`.
+- **Building training and test data.** Label data for a classifier, or generate synthetic examples, at the batch-API price.
+- **Translating and rewriting at scale.** Translate, summarise, or normalise a whole corpus with one command instead of a hand-written loop.
 
 ### Example
 
@@ -30,7 +39,7 @@ loom run --sync -f reviews.csv -p openai -m gpt-5.4-mini \
          --system "Classify the sentiment as positive or negative. Answer with one word."
 ```
 
-Loom writes `reviews_results_openai_gpt-5.4-mini.csv`, with the answers in a new `llm_response` column:
+loom-batch writes `reviews_results_openai_gpt-5.4-mini.csv`, with the answers in a new `llm_response` column:
 
 ```csv
 id,text,llm_response
@@ -53,6 +62,7 @@ Drop `--sync` to send the same file through the provider's batch API at half the
 ### Table of contents
 
 [1. Introduction](#1-introduction)\
+&emsp;[Use cases](#use-cases)\
 &emsp;[Example](#example)\
 &emsp;[Supported providers](#supported-providers)\
 [2. Getting started](#2-getting-started)\
@@ -72,7 +82,7 @@ Drop `--sync` to send the same file through the provider's batch API at half the
 &emsp;[Storing API keys](#storing-api-keys)\
 &emsp;[Caching](#caching)\
 &emsp;[Token counter](#token-counter)\
-&emsp;[Where Loom stores state](#where-loom-stores-state)\
+&emsp;[Where loom-batch stores state](#where-loom-batch-stores-state)\
 [4. Contributing](#4-contributing)\
 [5. License](#5-license)
 
@@ -86,11 +96,11 @@ pip install loom-batch
 
 The PyPI package is `loom-batch` (the name `loom` was taken); the CLI command is `loom`.
 
-To work on Loom itself, see [CONTRIBUTING.md](CONTRIBUTING.md).
+To work on loom-batch itself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Preparing the data
 
-Loom accepts three input formats — plain or **gzip-compressed** (`.json.gz`, `.csv.gz`). Compressed inputs are decompressed transparently; JSON and CSV outputs are always written uncompressed (`.json` / `.csv`). Parquet inputs produce `.parquet` output.
+loom-batch accepts three input formats — plain or **gzip-compressed** (`.json.gz`, `.csv.gz`). Compressed inputs are decompressed transparently; JSON and CSV outputs are always written uncompressed (`.json` / `.csv`). Parquet inputs produce `.parquet` output.
 
 **JSON** — a list of `{id, prompt}` objects. The `id` is reused as the row key in the merged output.
 
@@ -101,7 +111,7 @@ Loom accepts three input formats — plain or **gzip-compressed** (`.json.gz`, `
 ]
 ```
 
-**CSV** — any schema; Loom reads the prompt from the `text` column by default (override with `--col`). All original columns are preserved; a new `llm_response` column is appended.
+**CSV** — any schema; loom-batch reads the prompt from the `text` column by default (override with `--col`). All original columns are preserved; a new `llm_response` column is appended.
 
 ```csv
 id,text,priority
@@ -194,7 +204,7 @@ For pending batches, `loom fetch` prints the current status (`validating`, `in_p
 
 #### `loom list`
 
-List every batch known to Loom, with last-seen status, model, and source file. No flags.
+List every batch known to loom-batch, with last-seen status, model, and source file. No flags.
 
 #### `loom tokens`
 
@@ -233,7 +243,7 @@ Pick **batch** when you have a large dataset and don't care about wall-clock tim
 
 ### Generation settings
 
-Temperature, output length and the other common sampling options work the same way for every provider. Loom
+Temperature, output length and the other common sampling options work the same way for every provider. loom-batch
 translates them into each provider's request format:
 
 | Setting             | CLI flag               | OpenAI                  | Anthropic        | Google (Gemini)         | OpenRouter, Alibaba |
@@ -250,12 +260,12 @@ translates them into each provider's request format:
 | `json_mode`         | `--json`               | `response_format` JSON  | ✗                | `response_mime_type`    | `response_format`   |
 | `extra`             | `--param key=value`    | request body            | message params   | `GenerateContentConfig` | request body        |
 
-¹ Anthropic requires `max_tokens`; Loom sends 4096 when it is not set.
+¹ Anthropic requires `max_tokens`; loom-batch sends 4096 when it is not set.
 
-A setting marked ✗ raises `UnsupportedParameterError` before anything is sent — Loom never drops a setting silently.
+A setting marked ✗ raises `UnsupportedParameterError` before anything is sent — loom-batch never drops a setting silently.
 Unset settings are not sent, so the provider default applies. Batch and sync requests carry exactly the same settings.
 `extra` passes provider-specific options through unchanged (e.g. `reasoning_effort` for OpenAI reasoning models,
-`thinking_config` for Gemini); Loom does not validate them.
+`thinking_config` for Gemini); loom-batch does not validate them.
 
 ```bash
 loom run -p google -m gemini-3.5-flash -f data.csv -t 0.2 --max-tokens 800 --system "Answer in German." --json
@@ -275,7 +285,7 @@ Settings are part of the cache key (see [Caching](#caching)): the same prompt at
 
 ### Storing API keys
 
-Loom resolves keys in this order: **`--api-key` flag → environment variable → `.env` file** in the current working directory (loaded via `python-dotenv`, does not overwrite existing env vars).
+loom-batch resolves keys in this order: **`--api-key` flag → environment variable → `.env` file** in the current working directory (loaded via `python-dotenv`, does not overwrite existing env vars).
 
 Recognised environment variables:
 
@@ -299,14 +309,14 @@ A `.env` in the working directory is the friction-free option for daily use; `--
 
 ### Caching
 
-Loom caches every response under `~/.loom/cache/` (override with `--cache-dir`, `$LOOM_CACHE_DIR`, or `$LOOM_HOME`). The cache key is `sha256("<provider>|<model>|<prompt>|<settings>")`, so changing any of those misses the cache. `<settings>` is the canonical JSON of the [generation settings](#generation-settings) that are set; with no settings it is left out, so caches from Loom ≤ 0.4 stay valid. There is no TTL or eviction — the cache grows monotonically until you clear it.
+loom-batch caches every response under `~/.loom/cache/` (override with `--cache-dir`, `$LOOM_CACHE_DIR`, or `$LOOM_HOME`). The cache key is `sha256("<provider>|<model>|<prompt>|<settings>")`, so changing any of those misses the cache. `<settings>` is the canonical JSON of the [generation settings](#generation-settings) that are set; with no settings it is left out, so caches from loom-batch ≤ 0.4 stay valid. There is no TTL or eviction — the cache grows monotonically until you clear it.
 
 **Sync mode** reads the cache before calling the provider and writes every successful response.
 
 **Batch mode** also uses the cache:
 
 - at submit time, cached prompts are skipped (only misses go to the provider);
-- if *every* prompt is cached, Loom writes the output immediately and skips the provider entirely;
+- if *every* prompt is cached, loom-batch writes the output immediately and skips the provider entirely;
 - at fetch time, newly downloaded responses are written into the cache.
 
 ```bash
@@ -346,9 +356,9 @@ loom tokens --file prompts.json --provider anthropic --model claude-haiku-4-5
 
 For unsupported providers, `loom tokens` prints _"Token counting not available: ..."_ and exits with code 2.
 
-### Where Loom stores state
+### Where loom-batch stores state
 
-Everything lives under `~/.loom/` (override with `$LOOM_HOME`): pending batch jobs in `batches/`, the response cache in `cache/`, and prompt snapshots for batches submitted from Python in `inputs/`. The cache is safe to delete; deleting `batches/` makes Loom lose track of batches still running. Details in [docs/batch-jobs.md](docs/batch-jobs.md#where-loom-stores-state).
+Everything lives under `~/.loom/` (override with `$LOOM_HOME`): pending batch jobs in `batches/`, the response cache in `cache/`, and prompt snapshots for batches submitted from Python in `inputs/`. The cache is safe to delete; deleting `batches/` makes loom-batch lose track of batches still running. Details in [docs/batch-jobs.md](docs/batch-jobs.md#where-loom-batch-stores-state).
 
 ## 4. Contributing
 

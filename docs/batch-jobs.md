@@ -1,6 +1,6 @@
 # Batch jobs: statuses and stored state
 
-Details on what `loom fetch` reports and what Loom keeps on disk. For everyday use, the [README](../README.md) is enough.
+Details on what `loom fetch` reports and what loom-batch keeps on disk. For everyday use, the [README](../README.md) is enough.
 
 ## Batch statuses
 
@@ -14,11 +14,11 @@ For pending batches, `loom fetch` prints the current status and a one-sentence e
 | `failed`      | Provider reported the batch as failed; results are not available.                                                                                                                                                               |
 | `expired`     | Batch exceeded the provider's time limit (typically 24h) before completing.                                                                                                                                                     |
 | `cancelled`   | Batch was cancelled — either by you on the provider's dashboard, or by the provider itself.                                                                                                                                     |
-| `unknown`     | The last fetch attempt raised an error (invalid id, auth failure, network glitch, or an API response Loom doesn't recognise). Re-run `loom fetch` to retry; if it persists, inspect the metadata file under `~/.loom/batches/`. |
+| `unknown`     | The last fetch attempt raised an error (invalid id, auth failure, network glitch, or an API response loom-batch doesn't recognise). Re-run `loom fetch` to retry; if it persists, inspect the metadata file under `~/.loom/batches/`. |
 
 `validating` and `in_progress` are the only non-terminal states — `loom fetch` will pick the batch up again on the next run. The other states are terminal: `completed` means the output file is on disk, and `failed` / `expired` / `cancelled` mean no merge happened.
 
-## Where Loom stores state
+## Where loom-batch stores state
 
 ```
 ~/.loom/                    # or $LOOM_HOME
@@ -31,4 +31,4 @@ For pending batches, `loom fetch` prints the current status and a one-sentence e
 - `~/.loom/cache/<sha256>.json` is the response cache used by both `--sync` and batch. Each file holds `{provider, model, response, created_at}`.
 - `~/.loom/inputs/` holds temporary JSON snapshots for batches submitted via the Python `Loom.submit(...)` API.
 
-Both `batches/` and `cache/` are safe to delete by hand: cache will rebuild itself; deleting `batches/` orphans any in-flight batch jobs (they still complete on the provider's side, you just lose Loom's view of them).
+Both `batches/` and `cache/` are safe to delete by hand: cache will rebuild itself; deleting `batches/` orphans any in-flight batch jobs (they still complete on the provider's side, you just lose loom-batch's view of them).

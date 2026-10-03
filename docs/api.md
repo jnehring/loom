@@ -1,6 +1,6 @@
-# Loom Python API
+# loom-batch Python API
 
-Loom can be used as a Python library in addition to the CLI. Install the same package:
+loom-batch can be used as a Python library in addition to the CLI. Install the same package:
 
 ```bash
 pip install loom-batch
@@ -189,7 +189,7 @@ Load a previously submitted batch by id.
 
 #### `jobs() -> list[BatchJob]`
 
-List every batch known to Loom (under `~/.loom/batches/`).
+List every batch known to loom-batch (under `~/.loom/batches/`).
 
 ---
 
@@ -321,12 +321,12 @@ Values are validated on construction (ranges, unknown field names). `None` means
 | `json_mode`         | `--json`               | `response_format` JSON  | ✗                | `response_mime_type`    | `response_format`   |
 | `extra`             | `--param key=value`    | request body            | message params   | `GenerateContentConfig` | request body        |
 
-¹ Anthropic requires `max_tokens`; Loom sends 4096 when it is not set.
+¹ Anthropic requires `max_tokens`; loom-batch sends 4096 when it is not set.
 
-A setting marked ✗ raises `UnsupportedParameterError` before anything is sent — Loom never drops a setting silently.
+A setting marked ✗ raises `UnsupportedParameterError` before anything is sent — loom-batch never drops a setting silently.
 Unset settings are not sent, so the provider default applies. Batch and sync requests carry exactly the same settings.
 `extra` passes provider-specific options through unchanged (e.g. `reasoning_effort` for OpenAI reasoning models,
-`thinking_config` for Gemini); Loom does not validate them.
+`thinking_config` for Gemini); loom-batch does not validate them.
 
 Settings are stored on the batch metadata at submit time, so `fetch` caches the downloaded responses under the same
 key the submit looked up.
@@ -356,7 +356,7 @@ sha256("<provider>" + "\0" + "<model>" + "\0" + "<prompt>" [+ "\0" + "<settings>
 ```
 
 `<settings>` is the canonical JSON of the generation settings that are set (`GenerationParams.cache_token()`,
-sorted keys). With no settings it is left out, so keys written by Loom ≤ 0.4 remain valid. Changing any part
+sorted keys). With no settings it is left out, so keys written by loom-batch ≤ 0.4 remain valid. Changing any part
 produces a miss. There is no TTL or eviction. Cache entries written with settings also store them under `"params"`.
 
 ### `ResponseCache`
@@ -381,7 +381,7 @@ Pass `enabled=False` for a no-op cache (equivalent to `use_cache=False` on `Loom
 Batch mode uses the same cache as sync:
 
 - **Submit:** cached prompts are skipped; only misses go to the provider. Hits are stored on the batch metadata and merged back at fetch time.
-- **Fully cached:** if every prompt hits, Loom writes the output immediately (file-sourced) / returns cached responses (in-memory) with a synthetic `local-…` batch id — no provider call, nothing persisted under `batches/`.
+- **Fully cached:** if every prompt hits, loom-batch writes the output immediately (file-sourced) / returns cached responses (in-memory) with a synthetic `local-…` batch id — no provider call, nothing persisted under `batches/`.
 - **Fetch:** newly downloaded responses are written into the cache so a later sync or batch run of the same prompts is free.
 
 Disable with `use_cache=False` or CLI `--no-cache`.
