@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "loom-batch"
 version = "0.6.0"
-description = "Weave batch LLM jobs across OpenAI, Anthropic, and Google."
+description = "Run datasets of prompts through OpenAI, Anthropic, Google, OpenRouter, and Alibaba Cloud (Qwen), in batch or live."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Jan Nehring" }]
-keywords = ["llm", "batch", "openai", "anthropic", "gemini", "cli", "library"]
+keywords = ["llm", "batch", "openai", "anthropic", "gemini", "openrouter", "qwen", "cli", "library"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

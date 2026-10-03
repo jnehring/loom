@@ -9,7 +9,7 @@ pip install loom-batch
 ```python
 from loom import Loom
 
-client = Loom("openai", "gpt-4o-mini")
+client = Loom("openai", "gpt-5.4-mini")
 print(client.generate("Say hello in one word."))
 ```
 
@@ -25,11 +25,11 @@ API keys are resolved the same way as the CLI: explicit `api_key=` argument → 
 from loom import Loom, generate
 
 # Client (reusable)
-client = Loom("anthropic", "claude-3-5-sonnet-latest")
+client = Loom("anthropic", "claude-haiku-4-5")
 text = client.generate("Summarize Hamlet in one sentence.")
 
 # One-liner
-text = generate("Summarize Hamlet in one sentence.", "openai", "gpt-4o-mini")
+text = generate("Summarize Hamlet in one sentence.", "openai", "gpt-5.4-mini")
 ```
 
 ### Many prompts
@@ -277,7 +277,7 @@ run_file(path, provider, model, *, column="text", api_key=None, output=None,
          workers=8, use_cache=True, cache_dir=None, force=False,
          with_meta=False, on_progress=None, params=None, **settings) -> RunResult
 
-generate("Say hi", "google", "gemini-2.0-flash", temperature=0.2, max_tokens=50)
+generate("Say hi", "google", "gemini-3.5-flash", temperature=0.2, max_tokens=50)
 ```
 
 Each constructs a throwaway `Loom` client; `**settings` are the [generation settings](#generation-settings)
@@ -307,19 +307,19 @@ GenerationParams(
 
 Values are validated on construction (ranges, unknown field names). `None` means "not sent, provider default".
 
-| Setting             | CLI flag               | OpenAI                  | Anthropic        | Google (Gemini)       | OpenRouter         |
-| ------------------- | ---------------------- | ----------------------- | ---------------- | --------------------- | ------------------ |
-| `temperature`       | `--temperature`, `-t`  | `temperature`           | `temperature`    | `temperature`         | `temperature`      |
-| `max_tokens`        | `--max-tokens`         | `max_completion_tokens` | `max_tokens` ¹   | `max_output_tokens`   | `max_tokens`       |
-| `top_p`             | `--top-p`              | `top_p`                 | `top_p`          | `top_p`               | `top_p`            |
-| `top_k`             | `--top-k`              | ✗                       | `top_k`          | `top_k`               | `top_k`            |
-| `stop`              | `--stop` (repeatable)  | `stop`                  | `stop_sequences` | `stop_sequences`      | `stop`             |
-| `seed`              | `--seed`               | `seed`                  | ✗                | `seed`                | `seed`             |
-| `presence_penalty`  | `--presence-penalty`   | `presence_penalty`      | ✗                | `presence_penalty`    | `presence_penalty` |
-| `frequency_penalty` | `--frequency-penalty`  | `frequency_penalty`     | ✗                | `frequency_penalty`   | `frequency_penalty`|
-| `system`            | `--system`             | system message          | `system`         | `system_instruction`  | system message     |
-| `json_mode`         | `--json`               | `response_format` JSON  | ✗                | `response_mime_type`  | `response_format`  |
-| `extra`             | `--param key=value`    | request body            | message params   | `GenerateContentConfig` | request body     |
+| Setting             | CLI flag               | OpenAI                  | Anthropic        | Google (Gemini)         | OpenRouter, Alibaba |
+| ------------------- | ---------------------- | ----------------------- | ---------------- | ----------------------- | ------------------- |
+| `temperature`       | `--temperature`, `-t`  | `temperature`           | `temperature`    | `temperature`           | `temperature`       |
+| `max_tokens`        | `--max-tokens`         | `max_completion_tokens` | `max_tokens` ¹   | `max_output_tokens`     | `max_tokens`        |
+| `top_p`             | `--top-p`              | `top_p`                 | `top_p`          | `top_p`                 | `top_p`             |
+| `top_k`             | `--top-k`              | ✗                       | `top_k`          | `top_k`                 | `top_k`             |
+| `stop`              | `--stop` (repeatable)  | `stop`                  | `stop_sequences` | `stop_sequences`        | `stop`              |
+| `seed`              | `--seed`               | `seed`                  | ✗                | `seed`                  | `seed`              |
+| `presence_penalty`  | `--presence-penalty`   | `presence_penalty`      | ✗                | `presence_penalty`      | `presence_penalty`  |
+| `frequency_penalty` | `--frequency-penalty`  | `frequency_penalty`     | ✗                | `frequency_penalty`     | `frequency_penalty` |
+| `system`            | `--system`             | system message          | `system`         | `system_instruction`    | system message      |
+| `json_mode`         | `--json`               | `response_format` JSON  | ✗                | `response_mime_type`    | `response_format`   |
+| `extra`             | `--param key=value`    | request body            | message params   | `GenerateContentConfig` | request body        |
 
 ¹ Anthropic requires `max_tokens`; Loom sends 4096 when it is not set.
 
@@ -342,7 +342,7 @@ key the submit looked up.
 Batch metadata lives under `$LOOM_HOME/batches/`; in-memory batch prompt snapshots under `$LOOM_HOME/inputs/`.
 
 ```python
-client = Loom("openai", "gpt-4o-mini", cache_dir="/tmp/my-loom-cache")
+client = Loom("openai", "gpt-5.4-mini", cache_dir="/tmp/my-loom-cache")
 # or
 import os
 os.environ["LOOM_CACHE_DIR"] = "/tmp/my-loom-cache"
@@ -365,9 +365,9 @@ produces a miss. There is no TTL or eviction. Cache entries written with setting
 from loom import ResponseCache
 
 cache = ResponseCache(cache_dir="/tmp/c")
-cache.get("openai", "gpt-4o-mini", "hello")   # str | None
-cache.set("openai", "gpt-4o-mini", "hello", "world")
-cache.get("openai", "gpt-4o-mini", "hello", GenerationParams(temperature=0))  # separate entry
+cache.get("openai", "gpt-5.4-mini", "hello")   # str | None
+cache.set("openai", "gpt-5.4-mini", "hello", "world")
+cache.get("openai", "gpt-5.4-mini", "hello", GenerationParams(temperature=0))  # separate entry
 cache.count()   # int
 cache.clear()   # returns number of files removed
 cache.dir       # Path

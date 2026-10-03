@@ -1,59 +1,80 @@
 # Loom: LLM Batch Processing Made Easy
 
-<img src="https://github.com/jnehring/loom/blob/main/logos/loom-logo-small.png" width="250" style="float:left">
+<p align="center"><img src="https://raw.githubusercontent.com/jnehring/loom/main/logos/loom-logo-small.png" width="250" alt="Loom logo"></p>
 
-Weave LLM jobs across OpenAI, Anthropic, Google, OpenRouter, and Alibaba Cloud (Qwen) — in batch or live.
+Run a whole dataset of prompts through any major LLM with one command, and get your file back with the answers in a new column.
 
 ## 1. Introduction
 
-Loom is a small Python CLI **and library** for running a dataset of prompts (JSON, CSV, or Parquet) through an LLM and merging the responses back into the original file. It speaks two modes:
+Loom is a Python CLI **and library** for running a dataset of prompts (JSON, CSV, or Parquet) through an LLM. It writes the responses into a copy of your file and keeps every original column.
 
-- **Batch** (`loom run`, default): submits the dataset to the provider's batch API, persists the batch id locally, and later you call `loom fetch` to download and merge results. Cheap (50% off on OpenAI / Anthropic) but asynchronous — can take up to 24 hours. Uses the same on-disk response cache as sync (skips cached prompts at submit, writes downloads into the cache on fetch).
-- **Sequential** (`loom run --sync`): calls the chat-completion endpoint per prompt with a concurrent worker pool, writes the output file immediately, and uses an on-disk response cache.
+- **One interface, five providers.** OpenAI, Anthropic, Google Gemini, OpenRouter, and Alibaba Cloud (Qwen). Switching provider means changing `--provider` and `--model`; the input file and the command stay the same.
+- **Batch or live.** `loom run` submits the dataset to the provider's batch API: 50% cheaper on OpenAI and Anthropic, with results within 24 hours that you collect with `loom fetch`. `loom run --sync` calls the API live with a pool of concurrent workers and writes the output right away.
+- **No paying twice for the same prompt.** Every response is cached on disk. Re-runs, interrupted runs, and batch submissions skip prompts that were already answered.
+- **The same generation settings everywhere.** Temperature, max tokens, system prompt, JSON mode, and more are translated into each provider's request format. A setting the provider doesn't support raises an error instead of being dropped silently.
+- **Token counts before you spend.** `loom tokens` counts the input tokens of a dataset with the provider's own token-counting API.
+- **CLI or Python.** The [`Loom`](docs/api.md) client offers the same features for in-memory prompts and for files.
 
-It also ships a `loom tokens` command that uses each provider's token-counting API where available, and a [`Loom`](docs/api.md) Python client for in-memory and file-based use without the CLI.
+### Example
+
+Classify the sentiment of a CSV of reviews:
+
+```csv
+id,text
+1,"The battery died after two days."
+2,"Fast shipping, works perfectly."
+```
+
+```bash
+loom run --sync -f reviews.csv -p openai -m gpt-5.4-mini \
+         --system "Classify the sentiment as positive or negative. Answer with one word."
+```
+
+Loom writes `reviews_results_openai_gpt-5.4-mini.csv`, with the answers in a new `llm_response` column:
+
+```csv
+id,text,llm_response
+1,"The battery died after two days.",negative
+2,"Fast shipping, works perfectly.",positive
+```
+
+Drop `--sync` to send the same file through the provider's batch API at half the price.
 
 ### Supported providers
 
-| Provider        | Batch (`loom run`) | Sequential (`loom run --sync`) | Token counter (`loom tokens`) |
-| --------------- | ------------------ | ------------------------------ | ----------------------------- |
-| OpenAI          | ✓                  | ✓                              | ✓                             |
-| Anthropic       | ✓                  | ✓                              | ✓                             |
-| Google (Gemini) | ✓                  | ✓                              | ✓                             |
-| OpenRouter      | ✗                  | ✓                              | ✗ — no remote API             |
-| Alibaba Cloud (Model Studio, Qwen) | ✓ | ✓                      | ✗ — no remote API             |
+| Provider                           | Batch (`loom run`) | Sequential (`loom run --sync`) | Token counter (`loom tokens`) |
+| ---------------------------------- | ------------------ | ------------------------------ | ----------------------------- |
+| OpenAI                             | ✓                  | ✓                              | ✓                             |
+| Anthropic                          | ✓                  | ✓                              | ✓                             |
+| Google (Gemini)                    | ✓                  | ✓                              | ✓                             |
+| OpenRouter                         | ✗                  | ✓                              | ✗ — no remote API             |
+| Alibaba Cloud (Model Studio, Qwen) | ✓                  | ✓                              | ✗ — no remote API             |
 
 ### Table of contents
 
-- [Loom: LLM Batch Processing Made Easy](#loom-llm-batch-processing-made-easy)
-  - [1. Introduction](#1-introduction)
-    - [Supported providers](#supported-providers)
-    - [Table of contents](#table-of-contents)
-  - [2. Getting started](#2-getting-started)
-    - [Installation](#installation)
-    - [Preparing the data](#preparing-the-data)
-    - [Submit a batch request](#submit-a-batch-request)
-    - [Python library](#python-library)
-  - [3. Usage](#3-usage)
-    - [Command-line reference](#command-line-reference)
-      - [`loom run`](#loom-run)
-      - [`loom fetch`](#loom-fetch)
-      - [`loom list`](#loom-list)
-      - [`loom tokens`](#loom-tokens)
-      - [`loom cache clear`](#loom-cache-clear)
-    - [Batch vs sequential](#batch-vs-sequential)
-    - [Generation settings](#generation-settings)
-    - [Storing API keys](#storing-api-keys)
-    - [Caching](#caching)
-    - [Token counter](#token-counter)
-    - [Where Loom stores state](#where-loom-stores-state)
-  - [4. Developer instructions](#4-developer-instructions)
-    - [Repository layout](#repository-layout)
-    - [Running unit tests](#running-unit-tests)
-    - [Running provider evaluations](#running-provider-evaluations)
-    - [GitHub Actions](#github-actions)
-    - [Releasing](#releasing)
-  - [5. License](#5-license)
+[1. Introduction](#1-introduction)\
+&emsp;[Example](#example)\
+&emsp;[Supported providers](#supported-providers)\
+[2. Getting started](#2-getting-started)\
+&emsp;[Installation](#installation)\
+&emsp;[Preparing the data](#preparing-the-data)\
+&emsp;[Submit a batch request](#submit-a-batch-request)\
+&emsp;[Python library](#python-library)\
+[3. Usage](#3-usage)\
+&emsp;[Command-line reference](#command-line-reference)\
+&emsp;&emsp;[`loom run`](#loom-run)\
+&emsp;&emsp;[`loom fetch`](#loom-fetch)\
+&emsp;&emsp;[`loom list`](#loom-list)\
+&emsp;&emsp;[`loom tokens`](#loom-tokens)\
+&emsp;&emsp;[`loom cache clear`](#loom-cache-clear)\
+&emsp;[Batch vs sequential](#batch-vs-sequential)\
+&emsp;[Generation settings](#generation-settings)\
+&emsp;[Storing API keys](#storing-api-keys)\
+&emsp;[Caching](#caching)\
+&emsp;[Token counter](#token-counter)\
+&emsp;[Where Loom stores state](#where-loom-stores-state)\
+[4. Contributing](#4-contributing)\
+[5. License](#5-license)
 
 ## 2. Getting started
 
@@ -65,16 +86,7 @@ pip install loom-batch
 
 The PyPI package is `loom-batch` (the name `loom` was taken); the CLI command is `loom`.
 
-From source, for hacking or running tests:
-
-```bash
-git clone https://github.com/jannehring/loom
-cd loom
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-> **Tip:** if you create the venv with `uv venv`, `pip` is not installed inside it. Use `uv pip install -e ".[dev]"` instead, or recreate the venv with stdlib `python -m venv` (see [Troubleshooting](#troubleshooting)).
+To work on Loom itself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Preparing the data
 
@@ -97,7 +109,7 @@ id,text,priority
 2,"Write a haiku about rust",high
 ```
 
-**Parquet** — same semantics as CSV: reads the `text` column by default (override with `--col`). All original columns are preserved; `llm_response` is appended. Output is written as `.parquet`.
+**Parquet** — works exactly like CSV.
 
 ### Submit a batch request
 
@@ -106,23 +118,23 @@ Minimal end-to-end run, passing the API key inline (see [Storing API keys](#stor
 ```bash
 loom run --file prompts.json \
          --provider openai \
-         --model gpt-4o-mini \
+         --model gpt-5.4-mini \
          --api-key sk-...
 # -> Batch submitted. id=batch_abc123 provider=openai
 
 # ...minutes or hours later...
 loom fetch              # --all is the default; fetches every pending batch
-# -> Fabric complete. id=batch_abc123 -> prompts_results_openai_gpt-4o-mini.json
+# -> Fabric complete. id=batch_abc123 -> prompts_results_openai_gpt-5.4-mini.json
 ```
 
-The output is written next to the input as `<name>_results_<provider>_<model>.<ext>`. Forward slashes and other unsafe characters in the model id are replaced with underscores (e.g. `openai/gpt-4o-mini` → `openai_gpt-4o-mini`). For gzipped inputs the `.gz` is dropped — `data.csv.gz` → `data_results_<provider>_<model>.csv`. Override the path entirely with `--output`.
+The output is written next to the input as `<name>_results_<provider>_<model>.<ext>`. Forward slashes and other unsafe characters in the model id are replaced with underscores (e.g. `openai/gpt-5.4-mini` → `openai_gpt-5.4-mini`). For gzipped inputs the `.gz` is dropped — `data.csv.gz` → `data_results_<provider>_<model>.csv`. Override the path entirely with `--output`.
 
 ### Python library
 
 ```python
 from loom import Loom
 
-client = Loom("openai", "gpt-4o-mini", cache_dir="/tmp/loom-cache", temperature=0.2, max_tokens=500)
+client = Loom("google", "gemini-3.5-flash", cache_dir="/tmp/loom-cache", temperature=0.2, max_tokens=500)
 
 # In-memory
 print(client.generate("Say hello"))
@@ -152,7 +164,7 @@ Submit a dataset as a batch job (default) or run it synchronously with `--sync`.
 | -------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
 | `--file`, `-f`       | _required_                                 | Input `.json`, `.csv`, `.parquet`, `.json.gz`, or `.csv.gz`.                                                           |
 | `--provider`, `-p`   | _required_                                 | `openai`, `anthropic`, `google`, `openrouter`, or `alibaba`.                                                           |
-| `--model`, `-m`      | _required_                                 | Provider-specific model id (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-latest`, `gemini-2.0-flash`, `openai/gpt-4o-mini`). |
+| `--model`, `-m`      | _required_                                 | Provider-specific model id (e.g. `gpt-5.4-mini`, `claude-haiku-4-5`, `gemini-3.5-flash`, `openai/gpt-5.4-mini`, `qwen-plus`). |
 | `--col`, `-c`        | `text`                                     | Prompt column name (CSV and Parquet).                                                                                  |
 | `--api-key`          | env / `.env`                               | Override the resolved API key for this run.                                                                            |
 | `--output`, `-o`     | `<input>_results_<provider>_<model>.<ext>` | Custom output file path.                                                                                               |
@@ -178,19 +190,7 @@ Poll the provider, download results, merge into the output file.
 | `--keep`, `-k`             | off          | Keep the metadata file in `~/.loom/batches/` after a successful fetch (default: delete it).                              |
 | `--force`                  | off          | Overwrite existing output files without prompting.                                                                       |
 
-For pending batches, `loom fetch` prints the current status and a one-sentence explanation. The full set of possible statuses:
-
-| Status        | Meaning                                                                                                                                                                                                                         |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `validating`  | Provider has accepted the batch and is queueing/preparing it; no work has started yet.                                                                                                                                          |
-| `in_progress` | Provider is actively running the prompts; check back later.                                                                                                                                                                     |
-| `completed`   | All prompts finished and results were downloaded — the merged output file has been written.                                                                                                                                     |
-| `failed`      | Provider reported the batch as failed; results are not available.                                                                                                                                                               |
-| `expired`     | Batch exceeded the provider's time limit (typically 24h) before completing.                                                                                                                                                     |
-| `cancelled`   | Batch was cancelled — either by you on the provider's dashboard, or by the provider itself.                                                                                                                                     |
-| `unknown`     | The last fetch attempt raised an error (invalid id, auth failure, network glitch, or an API response Loom doesn't recognise). Re-run `loom fetch` to retry; if it persists, inspect the metadata file under `~/.loom/batches/`. |
-
-`validating` and `in_progress` are the only non-terminal states — `loom fetch` will pick the batch up again on the next run. The other states are terminal: `completed` means the output file is on disk, and `failed` / `expired` / `cancelled` mean no merge happened.
+For pending batches, `loom fetch` prints the current status (`validating`, `in_progress`, …) and picks the batch up again on the next run. All statuses are explained in [docs/batch-jobs.md](docs/batch-jobs.md#batch-statuses).
 
 #### `loom list`
 
@@ -236,19 +236,19 @@ Pick **batch** when you have a large dataset and don't care about wall-clock tim
 Temperature, output length and the other common sampling options work the same way for every provider. Loom
 translates them into each provider's request format:
 
-| Setting             | CLI flag               | OpenAI                  | Anthropic        | Google (Gemini)       | OpenRouter         |
-| ------------------- | ---------------------- | ----------------------- | ---------------- | --------------------- | ------------------ |
-| `temperature`       | `--temperature`, `-t`  | `temperature`           | `temperature`    | `temperature`         | `temperature`      |
-| `max_tokens`        | `--max-tokens`         | `max_completion_tokens` | `max_tokens` ¹   | `max_output_tokens`   | `max_tokens`       |
-| `top_p`             | `--top-p`              | `top_p`                 | `top_p`          | `top_p`               | `top_p`            |
-| `top_k`             | `--top-k`              | ✗                       | `top_k`          | `top_k`               | `top_k`            |
-| `stop`              | `--stop` (repeatable)  | `stop`                  | `stop_sequences` | `stop_sequences`      | `stop`             |
-| `seed`              | `--seed`               | `seed`                  | ✗                | `seed`                | `seed`             |
-| `presence_penalty`  | `--presence-penalty`   | `presence_penalty`      | ✗                | `presence_penalty`    | `presence_penalty` |
-| `frequency_penalty` | `--frequency-penalty`  | `frequency_penalty`     | ✗                | `frequency_penalty`   | `frequency_penalty`|
-| `system`            | `--system`             | system message          | `system`         | `system_instruction`  | system message     |
-| `json_mode`         | `--json`               | `response_format` JSON  | ✗                | `response_mime_type`  | `response_format`  |
-| `extra`             | `--param key=value`    | request body            | message params   | `GenerateContentConfig` | request body     |
+| Setting             | CLI flag               | OpenAI                  | Anthropic        | Google (Gemini)         | OpenRouter, Alibaba |
+| ------------------- | ---------------------- | ----------------------- | ---------------- | ----------------------- | ------------------- |
+| `temperature`       | `--temperature`, `-t`  | `temperature`           | `temperature`    | `temperature`           | `temperature`       |
+| `max_tokens`        | `--max-tokens`         | `max_completion_tokens` | `max_tokens` ¹   | `max_output_tokens`     | `max_tokens`        |
+| `top_p`             | `--top-p`              | `top_p`                 | `top_p`          | `top_p`                 | `top_p`             |
+| `top_k`             | `--top-k`              | ✗                       | `top_k`          | `top_k`                 | `top_k`             |
+| `stop`              | `--stop` (repeatable)  | `stop`                  | `stop_sequences` | `stop_sequences`        | `stop`              |
+| `seed`              | `--seed`               | `seed`                  | ✗                | `seed`                  | `seed`              |
+| `presence_penalty`  | `--presence-penalty`   | `presence_penalty`      | ✗                | `presence_penalty`      | `presence_penalty`  |
+| `frequency_penalty` | `--frequency-penalty`  | `frequency_penalty`     | ✗                | `frequency_penalty`     | `frequency_penalty` |
+| `system`            | `--system`             | system message          | `system`         | `system_instruction`    | system message      |
+| `json_mode`         | `--json`               | `response_format` JSON  | ✗                | `response_mime_type`    | `response_format`   |
+| `extra`             | `--param key=value`    | request body            | message params   | `GenerateContentConfig` | request body        |
 
 ¹ Anthropic requires `max_tokens`; Loom sends 4096 when it is not set.
 
@@ -258,17 +258,17 @@ Unset settings are not sent, so the provider default applies. Batch and sync req
 `thinking_config` for Gemini); Loom does not validate them.
 
 ```bash
-loom run -p google -m gemini-2.0-flash -f data.csv -t 0.2 --max-tokens 800 --system "Answer in German." --json
-loom run -p anthropic -m claude-3-5-sonnet-latest -f data.csv --temperature 0 --stop "###"
-loom run -p openai -m o4-mini -f data.csv --param reasoning_effort=low
+loom run -p google -m gemini-3.5-flash -f data.csv -t 0.2 --max-tokens 800 --system "Answer in German." --json
+loom run -p anthropic -m claude-haiku-4-5 -f data.csv --temperature 0 --stop "###"
+loom run -p openai -m gpt-5.4-mini -f data.csv --param reasoning_effort=low
 ```
 
 ```python
 from loom import Loom, GenerationParams
 
-client = Loom("google", "gemini-2.0-flash", temperature=0.2, max_tokens=800)
+client = Loom("google", "gemini-3.5-flash", temperature=0.2, max_tokens=800)
 client.generate("…", params={"temperature": 0.9})        # override for one call
-client = Loom("openai", "gpt-4o-mini", params=GenerationParams(seed=7, json_mode=True))
+client = Loom("openai", "gpt-5.4-mini", params=GenerationParams(seed=7, json_mode=True))
 ```
 
 Settings are part of the cache key (see [Caching](#caching)): the same prompt at another temperature is a new request.
@@ -310,11 +310,11 @@ Loom caches every response under `~/.loom/cache/` (override with `--cache-dir`, 
 - at fetch time, newly downloaded responses are written into the cache.
 
 ```bash
-loom run --sync -p openai -m gpt-4o-mini -f data.csv -c text   # first run: API calls
-loom run --sync -p openai -m gpt-4o-mini -f data.csv -c text   # second run: 100% cache hits
-loom run -p openai -m gpt-4o-mini -f data.csv -c text          # batch: skips cached prompts
-loom run --sync -p openai -m gpt-4o-mini -f data.csv --no-cache
-loom run --sync -p openai -m gpt-4o-mini -f data.csv --cache-dir /tmp/my-cache
+loom run --sync -p openai -m gpt-5.4-mini -f data.csv -c text   # first run: API calls
+loom run --sync -p openai -m gpt-5.4-mini -f data.csv -c text   # second run: 100% cache hits
+loom run -p openai -m gpt-5.4-mini -f data.csv -c text          # batch: skips cached prompts
+loom run --sync -p openai -m gpt-5.4-mini -f data.csv --no-cache
+loom run --sync -p openai -m gpt-5.4-mini -f data.csv --cache-dir /tmp/my-cache
 loom cache clear                                                # wipe the cache directory
 loom cache clear --cache-dir /tmp/my-cache
 ```
@@ -324,9 +324,9 @@ loom cache clear --cache-dir /tmp/my-cache
 ### Token counter
 
 ```bash
-loom tokens --file prompts.json --provider anthropic --model claude-3-5-sonnet-latest
+loom tokens --file prompts.json --provider anthropic --model claude-haiku-4-5
 # Counting tokens ████████░░░░  340/1000  est_total≈36,210  errors=0  0:01:12  eta 0:02:35
-# -> Total input tokens: 12,345 across 100 prompts (provider=anthropic, model=claude-3-5-sonnet-latest, errors=0)
+# -> Total input tokens: 12,345 across 100 prompts (provider=anthropic, model=claude-haiku-4-5, errors=0)
 ```
 
 `loom tokens` calls each provider's official count-tokens endpoint, one prompt at a time, with a concurrent worker pool. The live progress bar shows:
@@ -340,104 +340,19 @@ loom tokens --file prompts.json --provider anthropic --model claude-3-5-sonnet-l
 | ---------- | ---------------------------------------------------- | ----------------------------------------- |
 | Anthropic  | `client.messages.count_tokens(...)` → `input_tokens` | ✓                                         |
 | Google     | `client.models.count_tokens(...)` → `total_tokens`   | ✓                                         |
-| OpenAI     | —                                                    | ✗ (no remote API; use `tiktoken` locally) |
+| OpenAI     | `client.responses.input_tokens.count(...)` → `input_tokens` | ✓                                  |
 | OpenRouter | —                                                    | ✗                                         |
+| Alibaba Cloud | —                                                 | ✗                                         |
 
 For unsupported providers, `loom tokens` prints _"Token counting not available: ..."_ and exits with code 2.
 
 ### Where Loom stores state
 
-```
-~/.loom/                    # or $LOOM_HOME
-├── batches/                # one <provider>_<batch_id>.json per pending or kept batch
-├── cache/                  # one <sha256>.json per cached response ($LOOM_CACHE_DIR overrides)
-└── inputs/                 # prompt snapshots for in-memory batch submits (library API)
-```
+Everything lives under `~/.loom/` (override with `$LOOM_HOME`): pending batch jobs in `batches/`, the response cache in `cache/`, and prompt snapshots for batches submitted from Python in `inputs/`. The cache is safe to delete; deleting `batches/` makes Loom lose track of batches still running. Details in [docs/batch-jobs.md](docs/batch-jobs.md#where-loom-stores-state).
 
-- `~/.loom/batches/<provider>_<safe_id>.json` is created by `loom run` (batch mode) and contains `batch_id`, `provider`, `model`, `original_file_path`, `file_type`, the prompt column, an `id_map` mapping internal `custom_id` → original row id, `created_at`, the last-seen `status`, plus any responses already served from cache at submit time. `loom fetch` updates `status`, downloads results, writes them into the cache, and (unless `--keep` is passed) deletes the file on success.
-- `~/.loom/cache/<sha256>.json` is the response cache used by both `--sync` and batch. Each file holds `{provider, model, response, created_at}`.
-- `~/.loom/inputs/` holds temporary JSON snapshots for batches submitted via the Python `Loom.submit(...)` API.
+## 4. Contributing
 
-Both `batches/` and `cache/` are safe to delete by hand: cache will rebuild itself; deleting `batches/` orphans any in-flight batch jobs (they still complete on the provider's side, you just lose Loom's view of them).
-
-## 4. Developer instructions
-
-### Repository layout
-
-```
-loom/
-  __init__.py                   # Public exports (Loom, result types, …)
-  api.py                        # Loom client (library API)
-  main.py                       # CLI entry point (Typer commands)
-  core/
-    orchestrator.py             # run_batch, fetch_batch, generate_sync, count_tokens, generate_items
-    models.py                   # Pydantic models, ProviderName, BatchStatus, GenerationParams
-  eval/
-    eval_providers.py           # Provider evaluation script (init / fetch)
-  providers/
-    base.py                     # Batch provider ABC (submit/check_status/download)
-    sync_base.py                # Sync provider ABC (generate/count_tokens)
-    openai.py, anthropic.py,
-    google.py                   # Batch implementations
-    openai_sync.py, anthropic_sync.py,
-    google_sync.py, openrouter_sync.py   # Sync implementations
-    params.py                   # GenerationParams → provider request fields
-  utils/
-    converters.py               # Load / merge JSON, CSV & Parquet
-    storage.py                  # ~/.loom/batches/ persistence
-    cache.py                    # ResponseCache (configurable directory)
-    paths.py                    # LOOM_HOME / LOOM_CACHE_DIR resolution
-    keys.py                     # API-key resolution
-docs/
-  api.md                        # Python library API reference
-tests/                          # pytest suite
-.github/workflows/              # CI: test.yml, publish.yml
-pyproject.toml                  # Dependencies and package metadata
-```
-
-### Running unit tests
-
-```bash
-pip install -e ".[dev]"
-pytest                 # quiet
-pytest -v              # verbose
-pytest tests/test_converters.py     # one file
-pytest tests/test_storage.py::test_save_and_load_roundtrip   # one test
-```
-
-### Running provider evaluations
-
-Loom includes a provider-level evaluation script to test both synchronous and batch APIs for all supported providers using a small dataset of 3 prompts with predictable single-word outputs. This requires the API keys to be configured and it generates costs.
-
-```bash
-# 1. Initialize evaluation: test sync APIs and submit batch jobs (default: all providers)
-python -m loom.eval.eval_providers init
-
-# Alternatively, initialize for a single provider (e.g. google, openai, or anthropic)
-python -m loom.eval.eval_providers init google
-
-# 2. Fetch evaluation results: check batch statuses and download/validate results (default: all providers)
-python -m loom.eval.eval_providers fetch
-
-# Alternatively, fetch for a single provider only
-python -m loom.eval.eval_providers fetch google
-```
-
-This runs against live provider APIs. Configure your API keys (e.g. `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`) in your environment or a `.env` file before running. Any provider without a configured API key will be skipped automatically.
-
-
-### GitHub Actions
-
-- [`.github/workflows/test.yml`](.github/workflows/test.yml) — runs on every push and PR, with a matrix over Python 3.10 / 3.11 / 3.12. Installs the project with `pip install -e ".[dev]"` and runs `pytest -v`.
-- [`.github/workflows/publish.yml`](.github/workflows/publish.yml) — manual release workflow (`workflow_dispatch`). Pick **patch**, **minor**, or **major**, and it bumps `pyproject.toml` + `loom/__init__.py`, runs tests, builds an sdist + wheel, commits and tags the release, creates a GitHub Release, and uploads to PyPI via **OIDC Trusted Publishing** — no PyPI token is stored in repo secrets.
-
-### Releasing
-
-1. Open **Actions → publish → Run workflow** on `main`.
-2. Choose **patch**, **minor**, or **major** (e.g. `0.1.0` → `0.1.1` / `0.2.0` / `1.0.0`).
-3. The workflow bumps the version, runs tests, builds, commits `Release vX.Y.Z`, pushes the tag, creates a GitHub Release, and publishes to PyPI.
-
-The version bump is only pushed if tests and the build succeed.
+Setup from source, repository layout, tests, provider evaluations, and the release process are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 5. License
 
