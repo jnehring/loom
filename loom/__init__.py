@@ -24,9 +24,11 @@ __all__ = [
     "PromptItem",
     "GenerationParams",
     "UnsupportedParameterError",
+    "BatchFailedError",
     "OutputExistsError",
     "SyncOutputExistsError",
     "TokenCountingNotSupported",
+    "is_transient",
     "generate",
     "generate_many",
     "run_file",
@@ -47,7 +49,8 @@ if TYPE_CHECKING:  # pragma: no cover
         run_file,
     )
     from .core.models import BatchMetadata, GenerationParams, PromptItem
-    from .utils.errors import UnsupportedParameterError
+    from .utils.errors import BatchFailedError, UnsupportedParameterError
+    from .utils.retry import is_transient
     from .core.orchestrator import (
         OutputExistsError,
         SyncOutputExistsError,
@@ -72,6 +75,8 @@ _LAZY_MAP = {
     "PromptItem": (".core.models", "PromptItem"),
     "GenerationParams": (".core.models", "GenerationParams"),
     "UnsupportedParameterError": (".utils.errors", "UnsupportedParameterError"),
+    "BatchFailedError": (".utils.errors", "BatchFailedError"),
+    "is_transient": (".utils.retry", "is_transient"),
     "OutputExistsError": (".core.orchestrator", "OutputExistsError"),
     "SyncOutputExistsError": (".core.orchestrator", "SyncOutputExistsError"),
     "TokenCountingNotSupported": (".core.orchestrator", "TokenCountingNotSupported"),

@@ -22,6 +22,8 @@ from .core import orchestrator
 from .core.models import BatchMetadata, GenerationParams, ProviderName, PromptItem, as_params
 from .utils import storage
 from .utils.cache import ResponseCache
+from .utils.errors import BatchFailedError
+from .utils.retry import with_retries
 
 PathLike = Union[str, Path]
 ProgressCallback = Callable[[int, int, int, int], None]
@@ -82,13 +84,36 @@ class TokenCountResult:
 
 @dataclass
 class BatchFetchResult:
-    """Outcome of :meth:`BatchJob.fetch`."""
+    """Outcome of :meth:`BatchJob.fetch`.
+
+    ``done`` means results are available. A batch that is not done is either still running or ``failed``: the
+    provider ended it without results (status failed, expired or cancelled) and asking again will not change that;
+    ``error`` then holds the provider's reason when it gave one.
+    """
 
     job: "BatchJob"
     done: bool
     responses: dict[str, str] = field(default_factory=dict)
     error_messages: dict[str, str] = field(default_factory=dict)
     output_path: Optional[Path] = None
+
+    @property
+    def status(self) -> str:
+        return self.job.status
+
+    @property
+    def failed(self) -> bool:
+        return self.job.is_failed
+
+    @property
+    def error(self) -> Optional[str]:
+        """Batch-level failure reason from the provider (per-prompt errors are in ``error_messages``)."""
+        return self.error_messages.get("batch")
+
+    def raise_for_failure(self) -> None:
+        """Raise :class:`~loom.utils.errors.BatchFailedError` if the batch ended without results."""
+        if self.failed:
+            raise BatchFailedError(self.job.id, self.status, self.error)
 
 
 # ---------- BatchJob ----------
@@ -126,6 +151,11 @@ class BatchJob:
         return self._meta.status == "completed"
 
     @property
+    def is_failed(self) -> bool:
+        """Ended without results (failed, expired or cancelled); polling further will not change it."""
+        return self._meta.status in orchestrator.FAILED_STATUSES
+
+    @property
     def provider(self) -> str:
         return self._meta.provider
 
@@ -147,7 +177,8 @@ class BatchJob:
 
         api_key = resolve_api_key(self._meta.provider, key)
         provider = get_provider(self._meta.provider, api_key)
-        status = provider.check_status(self._meta.batch_id)
+        status = with_retries(lambda: provider.check_status(self._meta.batch_id),
+                              what=f"status of batch {self._meta.batch_id}")
         self._meta.status = status
         try:
             storage.save_batch(self._meta)

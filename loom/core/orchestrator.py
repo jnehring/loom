@@ -16,8 +16,12 @@ from ..utils import converters, storage
 from ..utils.cache import ResponseCache
 from ..utils.errors import format_exception
 from ..utils.keys import resolve_api_key
+from ..utils.retry import is_rate_limited, with_retries
 
 PathLike = Union[str, Path]
+
+# Batch states that never change again and carry no results.
+FAILED_STATUSES = frozenset({"failed", "expired", "cancelled"})
 
 
 # ---------- Shared helpers ----------
@@ -175,7 +179,12 @@ def submit_items(
     key = resolve_api_key(provider_name, api_key)
     provider = get_provider(provider_name, key)
     # Settings only when set: providers written before GenerationParams keep working
-    batch_id = provider.submit(list(pending), model, params) if not params.is_default() else provider.submit(list(pending), model)
+    def _submit() -> str:
+        return provider.submit(list(pending), model, params) if not params.is_default() else provider.submit(list(pending), model)
+
+    # Only a rate-limit rejection is resent: after a network error the batch may exist already, a resend would
+    # submit (and bill) it twice.
+    batch_id = with_retries(_submit, what=f"{provider_name} batch submit", retry_on=is_rate_limited)
 
     meta = BatchMetadata(
         batch_id=batch_id,
@@ -293,13 +302,16 @@ def fetch_batch(
     meta = storage.load_batch(batch_id)
     key = resolve_api_key(meta.provider, api_key)
     provider = get_provider(meta.provider, key)
-    status = provider.check_status(meta.batch_id)
+    status = with_retries(lambda: provider.check_status(meta.batch_id), what=f"status of batch {meta.batch_id}")
     meta.status = status
 
     if status != "completed":
         storage.save_batch(meta)
-        batch_error = provider.batch_error_message(meta.batch_id)
-        prompt_errors = {"batch": batch_error} if batch_error else {}
+        prompt_errors = {}
+        if status in FAILED_STATUSES:
+            batch_error = with_retries(lambda: provider.batch_error_message(meta.batch_id),
+                                       what=f"error of batch {meta.batch_id}")
+            prompt_errors = {"batch": batch_error} if batch_error else {}
         return meta, False, prompt_errors, {}
 
     original = Path(meta.original_file_path)
@@ -312,7 +324,8 @@ def fetch_batch(
     if meta.source == "file" and out_path.exists() and not force:
         raise OutputExistsError(meta, out_path)
 
-    responses, prompt_errors = provider.download_results(meta.batch_id, id_map=meta.id_map)
+    responses, prompt_errors = with_retries(lambda: provider.download_results(meta.batch_id, id_map=meta.id_map),
+                                            what=f"results of batch {meta.batch_id}")
 
     # Populate the cache with newly downloaded responses.
     cache_obj = _resolve_cache(
@@ -372,7 +385,7 @@ def fetch_all(
     """
     results = []
     for meta in storage.list_batches():
-        if meta.status in {"completed", "failed", "expired", "cancelled"} and meta.output_path:
+        if (meta.status == "completed" or meta.status in FAILED_STATUSES) and meta.output_path:
             continue
         try:
             results.append(

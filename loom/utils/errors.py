@@ -28,6 +28,22 @@ def format_api_error(obj: Any) -> str:
     return str(obj).strip()
 
 
+def summarize_messages(messages: list[str]) -> str | None:
+    """Join the distinct error messages in order (a failed batch repeats the same error once per input line)."""
+    distinct = list(dict.fromkeys(m for m in messages if m))
+    return "; ".join(distinct) if distinct else None
+
+
+class BatchFailedError(RuntimeError):
+    """A batch ended without results (provider status failed, expired or cancelled)."""
+
+    def __init__(self, batch_id: str, status: str, message: str | None = None) -> None:
+        super().__init__(f"Batch {batch_id} {status}" + (f": {message}" if message else ""))
+        self.batch_id = batch_id
+        self.status = status
+        self.message = message
+
+
 class UnsupportedParameterError(ValueError):
     """A generation setting the chosen provider does not support."""
 

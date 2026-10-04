@@ -10,7 +10,7 @@ import json
 from typing import TYPE_CHECKING, Optional
 
 from ..core.models import BatchStatus, GenerationParams, PromptItem
-from ..utils.errors import format_api_error
+from ..utils.errors import format_api_error, summarize_messages
 from .base import BatchProvider
 from .params import openai_body, openai_messages
 
@@ -121,6 +121,4 @@ class OpenAIBatchProvider(BatchProvider):
         data = getattr(batch_errors, "data", None) if batch_errors else None
         if not data:
             return None
-        messages = [format_api_error(item) for item in data]
-        messages = [m for m in messages if m]
-        return "; ".join(messages) if messages else None
+        return summarize_messages([format_api_error(item) for item in data])
